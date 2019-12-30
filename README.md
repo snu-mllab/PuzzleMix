@@ -3,6 +3,8 @@ This code has been tested with
 python 3.6.8  
 torch 1.0.0  
 torchvision 0.2.1
+gco-wrapper (https://github.com/Borda/pyGCO)
+
 ### Additioanal packages required
 matplotlib==3.0.2  
 numpy==1.15.4  
