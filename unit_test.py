@@ -69,7 +69,8 @@ def graphcut_multi(unary1, unary2, pw_x, pw_y, beta, n_labels=2):
     pairwise_cost = np.zeros(shape=[n_labels, n_labels], dtype=np.float32)
     for i in range(n_labels):
         for j in range(n_labels):
-            pairwise_cost[i, j] = abs(i-j) / (n_labels-1)**2
+            pairwise_cost[i, j] = (1-i/2)*j/2 + i/2*(1-j/2)
+
 
     pw_x = (alpha * (pw_x + beta)).astype(np.int32)
     pw_y = (alpha * (pw_y + beta)).astype(np.int32)
@@ -80,7 +81,7 @@ def graphcut_multi(unary1, unary2, pw_x, pw_y, beta, n_labels=2):
     return mask
     
     
-if __name__ == '__main__: 
+if __name__ == '__main__':
     block_num = 3
     n_labels = 3
     print('one sample test')
@@ -94,12 +95,13 @@ if __name__ == '__main__:
 
     test_graph(unary_test1, unary_test2, pw_x, pw_y, beta=beta, n_labels=n_labels, verbose=True)
 
-    print('\n100 samples test (If different, error will occur)')
+    print('\n100 samples test (If different, error will occur. For n_labels=3 it will take few minutes.)')
     for i in range(100):
         unary_test1 = np.random.uniform(size=(block_num,block_num))
         unary_test2 = np.random.uniform(size=(block_num,block_num))
         pw_x = np.random.uniform(size=(2,2,block_num-1,block_num)) * beta
         pw_y = np.random.uniform(size=(2,2,block_num,block_num-1)) * beta
 
-        test_graph(unary_test1, unary_test2, pw_x, pw_y, beta=beta)
+        test_graph(unary_test1, unary_test2, pw_x, pw_y, beta=beta, n_labels=n_labels)
     print("test finished")
+
