@@ -42,7 +42,6 @@ def test_graph(unary1, unary2, pw_x, pw_y, beta, n_labels=2, verbose=False):
     unary1[:,:-1] += (pw_y[0,1] + pw_y[0,0]) / 2
     unary2[:,1:] += (pw_y[0,1] + pw_y[1,1])/2
     unary1[:,1:] += (pw_y[1,0] + pw_y[0,0]) / 2
-    
     pw_x = (pw_x[1,0] + pw_x[0,1] - pw_x[1,1] - pw_x[0,0])/2
     pw_y = (pw_y[1,0] + pw_y[0,1] - pw_y[1,1] - pw_y[0,0])/2
     
