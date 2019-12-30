@@ -7,6 +7,7 @@ matplotlib.use('agg')
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
 import augmentations
+import gco
 
 class AverageMeter(object):
   """Computes and stores the average and current value"""
@@ -328,107 +329,9 @@ def barycenter_conv2d(input1, input2, reg=2e-3, weights=None, numItermax=10000, 
 
 
 
-def proximal_barycenter(input1, input2, reg, weights=None, numItermax=1, 
-                               mean=None, std=None,
-                               stopThr=1e-9, stabThr=1e-15, verbose=False,
-                               return_dist=False, norm_type='sum', p_iter=5):
-    if weights is None:
-        weights = torch.ones(input1.size()[0]) / 2
-    else:
-        weights = torch.ones(input1.size()[0]).cuda() * weights
-    weights = weights.double()
-
-    if mean is not None:
-        mean = mean.unsqueeze(-1).unsqueeze(-1).cuda()
-        std = std.unsqueeze(-1).unsqueeze(-1).cuda()
-        input1 = std * input1 + mean + stabThr
-        input2 = std * input2 + mean + stabThr
-
-    input1 = input1.double()
-    input2 = input2.double()
-
-    sum1 = input1.sum(2, keepdim=True).sum(3, keepdim=True)
-    sum2 = input2.sum(2, keepdim=True).sum(3, keepdim=True)
-    total_sum = unsqueeze3(weights)*sum1 + unsqueeze3(1.-weights)*sum2
-
-    if norm_type == 'max':
-        max1 = input1.max(2, keepdim=True)[0].max(3, keepdim=True)[0]
-        max2 = input2.max(2, keepdim=True)[0].max(3, keepdim=True)[0]
-        total_max = unsqueeze3(weights)*max1 + unsqueeze3(1.-weights)*max2 
-   
-    stabThr = torch.tensor(stabThr).cuda().double()
-    input1 /= sum1
-    input2 /= sum2
-    # build the convolution operator
-    batch_size = input1.shape[0]
-    c = input1.shape[1]
-    width = input1.shape[2]
-    
-    t = torch.linspace(0, 1, width)
-    [Y, X] = torch.meshgrid(t, t)
-    xi1_init = torch.exp(-(X - Y)**2 / reg).cuda().double()
-    xi1 = torch.ones_like(xi1_init).cuda().double()
-    U1 = torch.ones_like(input1).cuda().double()
-    U2 = torch.ones_like(input2).cuda().double()
-    alpha1 = torch.ones_like(input1).cuda().double()
-    beta1 = torch.ones_like(input1).cuda().double()
-    alpha2 = torch.ones_like(input1).cuda().double()
-    beta2 = torch.ones_like(input1).cuda().double()
-    
-    def K(x, xi1):
-        return torch.matmul(torch.matmul(xi1, x), xi1)
-    
-    for t in range(p_iter):
-        xi1 *= xi1_init
-        for _ in range(numItermax):
-            V1 = input1 / torch.max(stabThr, beta1 * K(U1 * alpha1, xi1))
-            KV1 = alpha1 * K(V1 * beta1 , xi1)
-            b = torch.einsum('i,ijkl->ijkl', weights, torch.log(torch.max(stabThr, U1 * KV1)))
-            V2 = input2 / torch.max(stabThr, beta2 * K(U2 * alpha2, xi1))
-            KV2 = alpha2 * K(V2 * beta2 , xi1)
-            b += torch.einsum('i,ijkl->ijkl', 1-weights, torch.log(torch.max(stabThr, U2 * KV2)))
-            b = torch.exp(b)
-            U1 = b / torch.max(stabThr, KV1)
-            U2 = b / torch.max(stabThr, KV2)
-        alpha1 = nan_recover(alpha1 * U1)
-        beta1 = nan_recover(beta1 * V1)
-        alpha2 = nan_recover(alpha2 * U2)
-        beta2 = nan_recover(beta2 * V2)
-    if norm_type == 'max':
-        b /= b.max(2, keepdim=True)[0].max(3, keepdim=True)[0]
-        b *= total_max
-    else:
-        b /= b.sum(2, keepdim=True).sum(3, keepdim=True)
-        b *= total_sum
-    b = torch.clamp(b, 0, 255).float()
-
-    if mean is not None:
-        b = (b- mean)/std
-    
-    return b #.clone().detach().requires_grad_(True)
-
-
-def rand_bbox(size, lam):
-    W = size[2]
-    H = size[3]
-    cut_rat = np.sqrt(1. - lam)
-    cut_w = np.int(W * cut_rat)
-    cut_h = np.int(H * cut_rat)
-
-    # uniform
-    cx = np.random.randint(W)
-    cy = np.random.randint(H)
-
-    bbx1 = np.clip(cx - cut_w // 2, 0, W)
-    bby1 = np.clip(cy - cut_h // 2, 0, H)
-    bbx2 = np.clip(cx + cut_w // 2, 0, W)
-    bby2 = np.clip(cy + cut_h // 2, 0, H)
-
-    return bbx1, bby1, bbx2, bby2
-
 def mixup_process(out, target_reweighted, lam, p=1.0, in_batch=0, hidden=0,
                   emd=0, proximal=0, reg=1e-5, itermax=1, label_inter=0, mean=None, std=None,
-                  box=0, graph=0, method='random', grad=None, block_num=-1, beta=0.0):
+                  box=0, graph=0, method='random', grad=None, block_num=-1, beta=0.0, gamma=0., neigh_size=2, n_labels=2):
     if block_num == -1:
         block_num = 2**np.random.randint(0, 5)
     if in_batch:
@@ -451,11 +354,11 @@ def mixup_process(out, target_reweighted, lam, p=1.0, in_batch=0, hidden=0,
             out, ratio = mixup_box(out, out[indices], grad, grad[indices], method=method, alpha=lam)
         elif graph:
             lam = lam.cpu().numpy()[0]
-            out, ratio = mixup_graph(out, out[indices], grad, grad[indices], block_num=block_num, method=method, alpha=lam, beta=beta)
+            out, ratio = mixup_graph(out, out[indices], grad, grad[indices], block_num=block_num, method=method,
+                         alpha=lam, beta=beta, gamma=gamma, neigh_size=neigh_size, n_labels=n_labels, mean=mean, std=std)
         elif emd:
             if not hidden:
                 out, ratio = barycenter_conv2d(out, out[indices], reg=reg, weights=lam, numItermax=itermax, mean=mean, std=std, v_max=1., return_alpha=label_inter, proximal=proximal)
-
             else:
                 out_pos = torch.max(out, torch.zeros_like(out))
                 out_neg = -torch.min(out, torch.zeros_like(out))
@@ -463,15 +366,17 @@ def mixup_process(out, target_reweighted, lam, p=1.0, in_batch=0, hidden=0,
                 out_pos, ratio=barycenter_conv2d(out_pos, out_pos[indices], reg=reg, weights=lam, numItermax=itermax, return_alpha=label_inter, proximal=proximal)
                 out_neg, ratio=barycenter_conv2d(out_neg, out_neg[indices], reg=reg, weights=lam, numItermax=itermax, return_alpha=label_inter, proximal=proximal)
                 out = out_pos - out_neg
+                
+            out = out.float()
+            if in_batch:
+                out_clean = out_clean.float()
+            ratio = ratio.float()
+            target_reweighted = target_reweighted.float()
+
         else:
             out = out*lam + out[indices]*(1-lam)
             ratio = torch.ones(out.shape[0]).cuda() * lam
 
-        out = out.float()
-        if in_batch:
-            out_clean = out_clean.float()
-        ratio = ratio.float()
-        target_reweighted = target_reweighted.float()
         target_shuffled_onehot = target_reweighted[indices]
         target_reweighted = target_reweighted * ratio.unsqueeze(-1) + target_shuffled_onehot * (1 - ratio.unsqueeze(-1))
     
@@ -480,57 +385,6 @@ def mixup_process(out, target_reweighted, lam, p=1.0, in_batch=0, hidden=0,
         target_reweighted = torch.cat([target_reweighted, target_clean], dim=0)
     return out, target_reweighted
 
-
-#def mixup_process(out, target_reweighted, lam, reg=1e-5, wasserstein=False, proximal=True, itermax=5, p=1.0, hidden=False, C=None, label_inter=False, mean=None, std=None, in_batch=True, cutmix=False):
-#    if in_batch:
-#        mix_idx = int(float(out.shape[0]) * p)
-#        indices = np.random.permutation(mix_idx)
-#
-#        out_clean = out[mix_idx:]
-#        target_clean = target_reweighted[mix_idx:]
-#        out = out[:mix_idx].clone()
-#        target_reweighted = target_reweighted[:mix_idx]
-#
-#        coin = 1
-#    else :
-#        indices = np.random.permutation(out.size(0))
-#        coin = np.random.binomial(1, p)
-#   
-#    if coin == 1:
-#        if wasserstein:
-#            if not hidden:
-#                #C = cost_matrix(out.size()[-1])
-#                idx = np.random.binomial(1, 1)
-#                reg = [2e-3, 1e-5][idx]
-#                p_iter = [5, 1][idx]
-#                mean = [129.3/255, 124.1/255, 112.4/255]
-#                std = [68.2/255, 65.4/255, 70.4/255]
-#                out = proximal_barycenter(out.clone().cuda(), out[indices].clone().cuda(), reg=reg, weights=lam, mean=torch.tensor(mean), std=torch.tensor(std), p_iter=p_iter)
-#                ratio = torch.ones(out.shape[0]).cuda() * lam
-#            else:
-#                out_pos = torch.max(out, torch.zeros_like(out))
-#                out_neg = -torch.min(out, torch.zeros_like(out))
-#                
-#                out_pos, ratio=barycenter_conv2d(out_pos, out_pos[indices], reg=reg, weights=lam, numItermax=itermax, cost=C, return_alpha=label_inter, proximal=proximal)
-#                out_neg, ratio=barycenter_conv2d(out_neg, out_neg[indices], reg=reg, weights=lam, numItermax=itermax, cost=C, return_alpha=label_inter, proximal=proximal)
-#                out = out_pos - out_neg
-#        else:
-#            if cutmix:
-#                bbx1, bby1, bbx2, bby2 = rand_bbox(out.size(), get_lambda(1))
-#                out[:,:, bbx1:bbx2, bby1:bby2] = out[indices,:,bbx1:bbx2, bby1:bby2]
-#                ratio = torch.ones(out.shape[0]).cuda() * (1 - ((bbx2 - bbx1) * (bby2 - bby1) / (out.size()[-1] * out.size()[-2])))
-#            else:
-#                out = out*lam + out[indices]*(1-lam)
-#                ratio = torch.ones(out.shape[0]).cuda() * lam
-#
-#        target_shuffled_onehot = target_reweighted[indices]
-#        target_reweighted = target_reweighted * ratio.unsqueeze(-1) + target_shuffled_onehot * (1 - ratio.unsqueeze(-1))
-#    
-#    if in_batch:
-#        out = torch.cat([out, out_clean], dim=0)
-#        target_reweighted = torch.cat([target_reweighted, target_clean], dim=0)
-#    return out, target_reweighted
-#
 
 def mixup_data(x, y, alpha):
     '''Compute the mixup data. Return mixed inputs, pairs of targets, and lambda'''
@@ -593,95 +447,35 @@ class Cutout(object):
         return img
 
 '''code for cutmix'''
-from ortools.graph.pywrapgraph import SimpleMaxFlow
-from scipy.spatial import KDTree 
+def graphcut_multi(unary1, unary2, pw_x, pw_y, beta, n_labels=2):
+    block_num = unary1.shape[0]
+    alpha = 1000 * block_num ** 2
+    unary_cost =  np.stack([(1-i) * alpha * unary1 + i * alpha * unary2 for i in np.linspace(0,1, n_labels)], axis=-1).astype(np.int32)
 
-class GraphCutHelper(object):
-    def __init__(self, block_num, beta=0):
-        self.alpha = 1000 * block_num**2
-        self.beta = int(beta * self.alpha)
-        self.block_num = block_num
-        self.num_nodes = self.block_num**2 + 2
-        
-        idx = 1
-        self.pos_to_idx = {}
-        self.idx_to_pos = {}
-        positions = []
-        for x in range(self.block_num):
-            for y in range(self.block_num):
-                self.pos_to_idx[(x, y)] = idx
-                self.idx_to_pos[idx] = (x, y)
-                positions.append([x, y])
-                idx += 1
-                
-        positions = np.array(positions, dtype=np.int32)
-        self.start_nodes = []
-        self.end_nodes = []
-        self.capacities = []
-                
-        # Calculate pairwise term 
-        kdtree = KDTree(positions)
-        for x in range(self.block_num):
-            for y in range(self.block_num):
-                idx = self.pos_to_idx[(x, y)]
-                neighbors = kdtree.query_ball_point([x, y], r=1)
-                for neighbor in neighbors:
-                    x_n, y_n = kdtree.data[neighbor]
-                    idx_n = self.pos_to_idx[(x_n, y_n)]
-                    if idx_n <= idx:
-                        continue
-                    # Intermediate edges
-                    self.start_nodes.append(idx)
-                    self.end_nodes.append(idx_n)
-                    self.capacities.append(self.beta)
+    pairwise_cost = np.zeros(shape=[n_labels, n_labels], dtype=np.float32)
+    for i in range(n_labels):
+        for j in range(n_labels):
+            pairwise_cost[i, j] = (i-j)**2 / (n_labels-1)**2
 
-                    self.start_nodes.append(idx_n)
-                    self.end_nodes.append(idx)
-                    self.capacities.append(self.beta)
+    pw_x = (alpha * (pw_x + beta)).astype(np.int32)
+    pw_y = (alpha * (pw_y + beta)).astype(np.int32)
 
+    labels = 1.0 - gco.cut_grid_graph(unary_cost, pairwise_cost, pw_x, pw_y, algorithm='swap')/(n_labels-1)
+    mask = labels.reshape(block_num, block_num)
 
-    def pairwise_update(self, beta):
-        self.beta = int(beta * self.alpha)
-        for i in range(len(self.capacities)):
-            self.capacities[i] = self.beta
-    
-                    
-    def create_graphs(self, unary1, unary2):  
-        # Construct KD-Tree and calculate unary term
-        start_nodes = []
-        end_nodes = []
-        capacities = []
-        for x in range(self.block_num):
-            for y in range(self.block_num):            
-                # From source
-                start_nodes.append(0)
-                end_nodes.append(self.pos_to_idx[(x, y)])
-                capacities.append(int(self.alpha*unary1[x,y]))
-                # To sink
-                start_nodes.append(self.pos_to_idx[(x, y)])
-                end_nodes.append(self.num_nodes-1)
-                capacities.append(int(self.alpha*unary2[x,y]))
-                                
-        self.graph = [self.start_nodes+start_nodes, self.end_nodes+end_nodes, self.capacities+capacities]
-    
+    return mask
+  
+  
+def neigh_penalty(input1, input2, k):
+    pw_x = input1[:,:,:-1,:] - input2[:,:,1:,:]
+    pw_y = input1[:,:,:,:-1] - input2[:,:,:,1:]
 
-    def solve(self):
-        mask = np.zeros([self.block_num, self.block_num])
-        start_nodes, end_nodes, capacities = self.graph
+    pw_x = pw_x[:,:,k-1::k,:]
+    pw_y = pw_y[:,:,:,k-1::k]
 
-        max_flow = SimpleMaxFlow()
-        for i in range(len(start_nodes)):
-            max_flow.AddArcWithCapacity(start_nodes[i], end_nodes[i], capacities[i])
-        
-        if max_flow.Solve(0, self.num_nodes-1) == max_flow.OPTIMAL:
-            source = max_flow.GetSourceSideMinCut()
-            sink = max_flow.GetSinkSideMinCut()
-            
-            for idx in source[1:]:    
-                x, y = self.idx_to_pos[idx]
-                mask[x, y] = 1.
-                
-        return mask
+    pw_x = F.avg_pool2d(pw_x.abs().mean(1), kernel_size=(1,k))
+    pw_y = F.avg_pool2d(pw_y.abs().mean(1), kernel_size=(k,1))
+    return pw_x, pw_y
 
 
 def mixup_box(input1, input2, grad1, grad2, method='random', alpha=0.5):
@@ -744,87 +538,160 @@ def mixup_box(input1, input2, grad1, grad2, method='random', alpha=0.5):
     return input1, ratio
 
 
-def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alpha=0.5, beta=0.):
+def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alpha=0.5, beta=0., gamma=0., neigh_size=2, n_labels=2, mean=None, std=None):
     batch_size, _, _, width = input1.shape
     block_size = width // block_num
     ratio = np.zeros([batch_size])
-    beta = beta / block_num / 16
+    beta = beta/block_num/16
 
-    x, y = np.mgrid[0: block_num, 0: block_num] * block_size
-    points = np.stack([x.ravel(), y.ravel()], axis=1)
-    
     mask = np.zeros([batch_size, 1, width, width])
     unary1 = F.avg_pool2d(grad1, block_size)
     unary2 = F.avg_pool2d(grad2, block_size)
     unary1 = unary1 / unary1.view(batch_size, -1).sum(1).view(batch_size, 1, 1)
-    unary2 = unary2 / unary2.view(batch_size, -1).sum(1).view(batch_size, 1, 1)    
-    
+    unary2 = unary2 / unary2.view(batch_size, -1).sum(1).view(batch_size, 1, 1)
+
     if method == 'random':
+        x, y = np.mgrid[0: block_num, 0: block_num] * block_size
+        points = np.stack([x.ravel(), y.ravel()], axis=1)
+
         for (x,y) in points:
-            # val = np.random.binomial(n=1, p=alpha, size=(1, 1, 1, 1))
-            val = np.random.binomial(n=1, p=alpha, size=(batch_size, 1, 1, 1))            
-            mask[:, :, x:x+block_size, y:y+block_size] += val 
+            val = np.random.binomial(n=1, p=alpha, size=(batch_size, 1, 1, 1))
+            mask[:, :, x:x+block_size, y:y+block_size] += val
             ratio += val[:,0,0,0]
-        mask = torch.tensor(mask, dtype=torch.float32).cuda()
+            mask = torch.tensor(mask, dtype=torch.float32, device='cuda')
+            
 
     elif method == 'cut':
         mask=[]
-        unary2 = np.sqrt(1-alpha) * unary2.detach().cpu().numpy()
-        base = np.ones_like(unary2) / block_num ** 2 * np.sqrt(alpha)
+        unary2 = unary2.detach().cpu().numpy() + np.sqrt(1- alpha**2) / block_num ** 2
+        unary1 = np.ones_like(unary2) / block_num ** 2 + np.sqrt(1- (1-alpha)**2) / block_num ** 2
+        input_pool = F.avg_pool2d(input2*std+mean, neigh_size)
 
-        graph = GraphCutHelper(block_num=block_num, beta=beta)
+        pw_x = torch.zeros([batch_size, 2, 2, block_num-1, block_num], device='cuda')
+        pw_y = torch.zeros([batch_size, 2, 2, block_num, block_num-1], device='cuda')
+        k = block_size//neigh_size
+
+        pw_x[:, 0, 0], pw_y[:, 0, 0] = neigh_penalty(input_pool, input_pool, k)
+        pw_x[:, 1, 1], pw_y[:, 1, 1] = pw_x[:, 0, 0], pw_y[:, 0, 0]
+        pw_x = pw_x.detach().cpu().numpy()
+        pw_y = pw_y.detach().cpu().numpy()x`
+
         for i in range(batch_size):
-            graph.create_graphs(unary2[i], base[i])
-            mask.append(1.0 - graph.solve())
+            pw_x_i = beta * gamma * pw_x[i]
+            pw_y_i = beta * gamma * pw_y[i]
+
+            unary2[i][:-1,:] += (pw_x_i[1,0] + pw_x_i[1,1])/2.
+            unary1[i][:-1,:] += (pw_x_i[0,1] + pw_x_i[0,0])/2.
+            unary2[i][1:,:] += (pw_x_i[0,1] + pw_x_i[1,1])/2.
+            unary1[i][1:,:] += (pw_x_i[1,0] + pw_x_i[0,0])/2.
+
+            unary2[i][:,:-1] += (pw_y_i[1,0] + pw_y_i[1,1])/2
+            unary1[i][:,:-1] += (pw_y_i[0,1] + pw_y_i[0,0]) / 2
+            unary2[i][:,1:] += (pw_y_i[0,1] + pw_y_i[1,1])/2
+            unary1[i][:,1:] += (pw_y_i[1,0] + pw_y_i[0,0]) / 2
+
+            pw_x_i = (pw_x_i[1,0] + pw_x_i[0,1] - pw_x_i[1,1] - pw_x_i[0,0])/2
+            pw_y_i = (pw_y_i[1,0] + pw_y_i[0,1] - pw_y_i[1,1] - pw_y_i[0,0])/2
+
+            mask.append(graphcut_multi(unary2[i], unary1[i], pw_x_i, pw_y_i, beta, n_labels))
             ratio[i] = mask[i].sum()
-        
-        mask = torch.tensor(mask, dtype=torch.float32).cuda()
+
+        mask = torch.tensor(mask, dtype=torch.float32, device='cuda')
         mask = F.interpolate(mask.unsqueeze(1), size=width)
+
 
     elif method == 'cut_small':
         mask=[]
-        if alpha<= 0.5:
-            unary1 = np.sqrt(alpha) * unary1.detach().cpu().numpy()
-            base = np.ones_like(unary1) / block_num ** 2 * np.sqrt(1-alpha)
-            
-            graph = GraphCutHelper(block_num=block_num, beta=beta)
-            for i in range(batch_size):
-                graph.create_graphs(unary1[i], base[i])
-                mask.append(graph.solve())
-                ratio[i] = mask[i].sum()
+        if alpha < 0.5:
+            unary1 = unary1.detach().cpu().numpy() + np.sqrt(1- (1-alpha)**2) / block_num ** 2
+            unary2 = np.ones_like(unary1) / block_num ** 2 + np.sqrt(1- alpha**2) / block_num ** 2
+            input_pool = F.avg_pool2d(input1*std+mean, neigh_size)
         else:
-            unary2 = np.sqrt(1-alpha) * unary2.detach().cpu().numpy()
-            base = np.ones_like(unary2) / block_num ** 2 * np.sqrt(alpha)
+            unary1 = np.ones_like(unary2) / block_num ** 2 + np.sqrt(1- (1-alpha)**2) / block_num ** 2
+            unary2 = unary2.detach().cpu().numpy() + np.sqrt(1- alpha**2) / block_num ** 2
+            input_pool = F.avg_pool2d(input2*std+mean, neigh_size)
 
-            graph = GraphCutHelper(block_num=block_num, beta=beta)
-            for i in range(batch_size):
-                graph.create_graphs(unary2[i], base[i])
-                mask.append(1.0 - graph.solve())
-                ratio[i] = mask[i].sum()
-        
-        mask = torch.tensor(mask, dtype=torch.float32).cuda()
+        pw_x = torch.zeros([batch_size, 2, 2, block_num-1, block_num], device='cuda')
+        pw_y = torch.zeros([batch_size, 2, 2, block_num, block_num-1], device='cuda')
+        k = block_size//neigh_size
+
+        pw_x[:, 0, 0], pw_y[:, 0, 0] = neigh_penalty(input_pool, input_pool, k)
+        pw_x[:, 1, 1], pw_y[:, 1, 1] = pw_x[:, 0, 0], pw_y[:, 0, 0]
+        pw_x = pw_x.detach().cpu().numpy()
+        pw_y = pw_y.detach().cpu().numpy()
+
+        for i in range(batch_size):
+            pw_x_i = beta * gamma * pw_x[i]
+            pw_y_i = beta * gamma * pw_y[i]
+
+            unary2[i][:-1,:] += (pw_x_i[1,0] + pw_x_i[1,1])/2.
+            unary1[i][:-1,:] += (pw_x_i[0,1] + pw_x_i[0,0])/2.
+            unary2[i][1:,:] += (pw_x_i[0,1] + pw_x_i[1,1])/2.
+            unary1[i][1:,:] += (pw_x_i[1,0] + pw_x_i[0,0])/2.
+
+            unary2[i][:,:-1] += (pw_y_i[1,0] + pw_y_i[1,1])/2
+            unary1[i][:,:-1] += (pw_y_i[0,1] + pw_y_i[0,0]) / 2
+            unary2[i][:,1:] += (pw_y_i[0,1] + pw_y_i[1,1])/2
+            unary1[i][:,1:] += (pw_y_i[1,0] + pw_y_i[0,0]) / 2
+
+            pw_x_i = (pw_x_i[1,0] + pw_x_i[0,1] - pw_x_i[1,1] - pw_x_i[0,0])/2
+            pw_y_i = (pw_y_i[1,0] + pw_y_i[0,1] - pw_y_i[1,1] - pw_y_i[0,0])/2
+
+            mask.append(graphcut_multi(unary2[i], unary1[i], pw_x_i, pw_y_i, beta, n_labels))
+            ratio[i] = mask[i].sum()
+
+        mask = torch.tensor(mask, dtype=torch.float32, device='cuda')
         mask = F.interpolate(mask.unsqueeze(1), size=width)
+
 
     elif method == 'mix':
         mask=[]
-        unary1 = np.sqrt(alpha) * unary1.detach().cpu().numpy()
-        unary2 = np.sqrt(1-alpha) * unary2.detach().cpu().numpy()
-        
-        graph = GraphCutHelper(block_num=block_num, beta=beta)
+        unary1 = unary1.detach().cpu().numpy() + np.sqrt(1- (1-alpha)**2) / block_num ** 2
+        unary2 = unary2.detach().cpu().numpy() + np.sqrt(1- alpha**2) / block_num ** 2
+
+        ### Add unnormalize tern !
+        input1_pool = F.avg_pool2d(input1*std+mean, neigh_size)
+        input2_pool = F.avg_pool2d(input2*std+mean, neigh_size)
+
+        pw_x = torch.zeros([batch_size, 2, 2, block_num-1, block_num], device='cuda')
+        pw_y = torch.zeros([batch_size, 2, 2, block_num, block_num-1], device='cuda')
+        k = block_size//neigh_size
+
+        pw_x[:, 0, 0], pw_y[:, 0, 0] = neigh_penalty(input1_pool, input1_pool, k)
+        pw_x[:, 0, 1], pw_y[:, 0, 1] = neigh_penalty(input1_pool, input2_pool, k)
+        pw_x[:, 1, 0], pw_y[:, 1, 0] = neigh_penalty(input2_pool, input1_pool, k)
+        pw_x[:, 1, 1], pw_y[:, 1, 1] = neigh_penalty(input2_pool, input2_pool, k)
+        pw_x = pw_x.detach().cpu().numpy()
+        pw_y = pw_y.detach().cpu().numpy()
+
         for i in range(batch_size):
-            graph.create_graphs(unary1[i], unary2[i])
-            mask.append(graph.solve())
+            pw_x_i = beta * gamma * pw_x[i]
+            pw_y_i = beta * gamma * pw_y[i]
+
+            unary2[i][:-1,:] += (pw_x_i[1,0] + pw_x_i[1,1])/2.
+            unary1[i][:-1,:] += (pw_x_i[0,1] + pw_x_i[0,0])/2.
+            unary2[i][1:,:] += (pw_x_i[0,1] + pw_x_i[1,1])/2.
+            unary1[i][1:,:] += (pw_x_i[1,0] + pw_x_i[0,0])/2.
+
+            unary2[i][:,:-1] += (pw_y_i[1,0] + pw_y_i[1,1])/2
+            unary1[i][:,:-1] += (pw_y_i[0,1] + pw_y_i[0,0]) / 2
+            unary2[i][:,1:] += (pw_y_i[0,1] + pw_y_i[1,1])/2
+            unary1[i][:,1:] += (pw_y_i[1,0] + pw_y_i[0,0]) / 2
+
+            pw_x_i = (pw_x_i[1,0] + pw_x_i[0,1] - pw_x_i[1,1] - pw_x_i[0,0])/2
+            pw_y_i = (pw_y_i[1,0] + pw_y_i[0,1] - pw_y_i[1,1] - pw_y_i[0,0])/2
+
+            mask.append(graphcut_multi(unary2[i], unary1[i], pw_x_i, pw_y_i, beta, n_labels))
             ratio[i] = mask[i].sum()
-            
-        mask = torch.tensor(mask, dtype=torch.float32).cuda()
+
+        mask = torch.tensor(mask, dtype=torch.float32, device='cuda')
         mask = F.interpolate(mask.unsqueeze(1), size=width)
 
     else:
         raise AssertionError("wrong mixup method type !!")
 
-    ratio = torch.tensor(ratio/block_num**2, dtype=torch.float32).cuda()
+    ratio = torch.tensor(ratio/block_num**2, dtype=torch.float32, device='cuda')
     return mask * input1 + (1-mask) * input2, ratio
-
 
 
 def create_val_folder(data_set_path):
