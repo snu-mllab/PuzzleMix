@@ -80,7 +80,7 @@ def graphcut_multi(unary1, unary2, pw_x, pw_y, beta, n_labels=2):
     return mask
     
     
-if __name__ == '__main__: 
+if __name__ == '__main__': 
     block_num = 3
     n_labels = 3
     print('one sample test')
