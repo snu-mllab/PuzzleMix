@@ -38,6 +38,17 @@ model_names = sorted(name for name in models.__dict__
   if name.islower() and not name.startswith("__")
   and callable(models.__dict__[name]))
 
+def str2bool(v):
+    if isinstance(v, bool):
+       return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
+        
+
 parser = argparse.ArgumentParser(description='Trains ResNeXt on CIFAR or ImageNet', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10', 'cifar100', 'imagenet', 'svhn', 'stl10', 'mnist', 'tiny-imagenet-200'], help='Choose between Cifar10/100 and ImageNet.')
 parser.add_argument('--data_dir', type = str, default = 'cifar10',
@@ -54,29 +65,32 @@ parser.add_argument('--initial_channels', type=int, default=64, choices=(16,64))
 # Optimization options
 parser.add_argument('--epochs', type=int, default=300, help='Number of epochs to train.')
 parser.add_argument('--delay', type=int, default=0, help='When to start augment')
+
 parser.add_argument('--train', type=str, default='vanilla', choices=['vanilla', 'mixup', 'mixup_hidden','cutout'])
-parser.add_argument('--in_batch', type=int, default=0)
+parser.add_argument('--in_batch', type=str2bool, default=False)
 parser.add_argument('-p', '--prob', type=float, default=1.0)
 parser.add_argument('--mixup_alpha', type=float, help='alpha parameter for mixup')
-
-parser.add_argument('--augment', type=int, default=1)
-parser.add_argument('--emd', type=int, default=0)
-parser.add_argument('--proximal', type=int, default=0)
-parser.add_argument('--label_inter', type=int, default=0)
-parser.add_argument('--augmix', type=int, default=0)
-parser.add_argument('--reg', type=float, default=1e-5)
-parser.add_argument('--itermax', type=int, default=10)
-parser.add_argument('--cutout', type=int, default=16, help='size of cut out')
-parser.add_argument('--box', type=int, default=0)
-parser.add_argument('--graph', type=int, default=0)
-parser.add_argument('--method', type=str, default='random', choices=['random', 'cut', 'cut_small', 'paste','mix'])
-parser.add_argument('--beta', type=float, default=0.0)
-parser.add_argument('--block_num', type=int, default=-1)
-parser.add_argument('--dropout', action='store_true', default=False,
+parser.add_argument('--augmix', type=str2bool, default=False)
+parser.add_argument('--dropout', type=str2bool, default=False,
                     help='whether to use dropout or not in final layer')
 
+parser.add_argument('--emd', type=str2bool, default=False)
+parser.add_argument('--proximal', type=str2bool, default=True)
+parser.add_argument('--label_inter', type=str2bool, default=False)
+parser.add_argument('--reg', type=float, default=1e-5)
+parser.add_argument('--itermax', type=int, default=10)
 
-parser.add_argument('--jsd', type=int, default=0)
+parser.add_argument('--cutout', type=int, default=16, help='size of cut out')
+parser.add_argument('--box', type=str2bool, default=False)
+parser.add_argument('--graph', type=str2bool, default=False)
+parser.add_argument('--method', type=str, default='random', choices=['random', 'cut', 'cut_small', 'paste','mix'])
+parser.add_argument('--block_num', type=int, default=-1)
+parser.add_argument('--beta', type=float, default=0.0)
+parser.add_argument('--gamma', type=float, default=0.0, help='[0,1]')
+parser.add_argument('--neigh_size', type=int, default=2)
+parser.add_argument('--n_labels', type=int, default=2)
+
+parser.add_argument('--jsd', type=str2bool, default=False)
 parser.add_argument('--jsd_lam', type=float, default=12)
 parser.add_argument('--batch_size', type=int, default=100, help='Batch size.')
 parser.add_argument('--learning_rate', type=float, default=0.1, help='The Learning Rate.')
@@ -88,6 +102,7 @@ parser.add_argument('--decay', type=float, default=0.0001, help='Weight decay (L
 parser.add_argument('--schedule', type=int, nargs='+', default=[150, 225], help='Decrease learning rate at these epochs.')
 parser.add_argument('--gammas', type=float, nargs='+', default=[0.1, 0.1], help='LR is multiplied by gamma on schedule, number of gammas should be equal to schedule')
 # Checkpoints
+
 parser.add_argument('--print_freq', default=100, type=int, metavar='N', help='print frequency (default: 200)')
 parser.add_argument('--resume', default='', type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
 parser.add_argument('--start_epoch', default=0, type=int, metavar='N', help='manual epoch number (useful on restarts)')
@@ -112,38 +127,39 @@ torch.cuda.manual_seed_all(args.seed)
 
 cudnn.benchmark = True
 
-
-def experiment_name_non_mnist(dataset='cifar100',
-                    labels_per_class=500,
-                    arch='',
-                    epochs=300,
-                    delay=0,
-                    dropout=True,
-                    batch_size=100,
-                    lr=0.1,
-                    momentum=0.9,
-                    decay=0.0001,
-                    data_aug=1,
-                    train = 'vanilla',
-                    augment = 'aug',
-                    emd = 0,
-                    label_inter = 0,
-                    proximal = 0,
-                    itermax = 1,
-                    reg = 1e-5,
-                    box = 0,
-                    graph = 0,
-                    method = 'random',
-                    block_num = -1,
-                    beta = 0.0,
-                    in_batch = 0,
-                    p = 1.0,
-                    mixup_alpha=0.0,
-                    job_id=None,
-                    add_name='',
-                    jsd=0,
-                    jsd_lam=12,
-                    augmix=1):
+def experiment_name_non_mnist(dataset=args.dataset,
+                    labels_per_class=args.labels_per_class,
+                    arch=args.arch,
+                    epochs=args.epochs,
+                    delay=args.delay,
+                    dropout=args.dropout,
+                    batch_size=args.batch_size,
+                    lr=args.learning_rate,
+                    momentum=args.momentum,
+                    decay= args.decay,
+                    data_aug=args.data_aug,
+                    train = args.train,
+                    augment = args.augment,
+                    emd = args.emd,
+                    label_inter = args.label_inter,
+                    proximal = args.proximal,
+                    box = args.box,
+                    graph = args.graph,
+                    method = args.method,
+                    block_num = args.block_num,
+                    beta = args.beta,
+                    gamma=args.gamma,
+                    n_labels = args.n_labels,
+                    reg = args.reg,
+                    itermax = args.itermax,
+                    in_batch = args.in_batch,
+                    p = args.prob,
+                    mixup_alpha = args.mixup_alpha,
+                    job_id=args.job_id,
+                    add_name=args.add_name,
+                    jsd=args.jsd,
+                    jsd_lam=args.jsd_lam,
+                    augmix=args.augmix):
 
     exp_name = dataset
     exp_name += '{}'.format(labels_per_class)
@@ -160,7 +176,7 @@ def experiment_name_non_mnist(dataset='cifar100',
     if box:
         exp_name += '_box_' + method
     if graph:
-        exp_name += '_graph_' + method + '_block' + str(block_num) + '_beta_' + str(beta)
+        exp_name += '_graph_' + method + '_block' + str(block_num) + '_beta_' + str(beta) + '_gamma_' + str(gamma) + '_n_labels_' + str(n_labels)
     if augmix:
         exp_name += '_augmix'
     if in_batch:
@@ -308,6 +324,7 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
                               F.kl_div(p_mixture, p_aug2, reduction='batchmean')) / 3.
         
                 input = input_aug1.float()
+            
             if args.box or args.graph:
                 input_var = Variable(input, requires_grad=True)
                 target_var = Variable(target)
@@ -321,10 +338,11 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
 
                 unary = torch.sqrt(torch.mean(input_var.grad **2, dim=1))
                 model.train()
+                
             input_var, target_var = Variable(input).float(), Variable(target)
             output, reweighted_target = model(input_var,target_var, mixup= True, mixup_alpha = args.mixup_alpha, p=args.prob, in_batch=args.in_batch,
                     emd=args.emd, proximal=args.proximal, reg=args.reg, itermax=args.itermax, label_inter=args.label_inter, mean=mean, std=std,
-                    box=args.box, graph=args.graph, method=args.method, grad=unary, block_num=args.block_num, beta=args.beta)
+                    box=args.box, graph=args.graph, method=args.method, grad=unary, block_num=args.block_num, beta=args.beta, gamma=args.gamma, neigh_size=args.neigh_size, n_labels=args.n_labels)
             loss = bce_loss(softmax(output), reweighted_target)#mixup_criterion(target_a, target_b, lam)
             if args.augmix == 1 and args.jsd == 1:
                 loss += loss_JSD
@@ -334,7 +352,7 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
             input_var, target_var = Variable(input), Variable(target)
             output, reweighted_target = model(input_var,target_var, mixup_hidden= True, mixup_alpha = args.mixup_alpha, p=args.prob, in_batch=args.in_batch,
                     emd=args.emd, proximal=args.proximal, reg=args.reg, itermax=args.itermax, label_inter=args.label_inter, mean=mean, std=std,
-                    box=args.box, graph=args.graph, method=args.method, grad=unary, block_num=args.block_num, beta=args.beta)
+                    box=args.box, graph=args.graph, method=args.method, grad=unary, block_num=args.block_num, beta=args.beta, gamma=args.gamma, neigh_size=args.neigh_size, n_labels=args.n_labels)
             loss = bce_loss(softmax(output), reweighted_target)#mixup_criterion(target_a, target_b, lam)
             
         elif args.train == 'cutout':
@@ -408,45 +426,13 @@ def validate(val_loader, model, log):
     top5.update(prec5.item(), input.size(0))
 
   print_log('  **Test** Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f} Error@1 {error1:.3f} Loss: {losses.avg:.3f} '.format(top1=top1, top5=top5, error1=100-top1.avg, losses=losses), log)
-
   return top1.avg, losses.avg
 
 best_acc = 0
 def main():
     ### set up the experiment directories########
     if not args.log_off:
-        exp_name=experiment_name_non_mnist(dataset=args.dataset,
-                    labels_per_class=args.labels_per_class,
-                    arch=args.arch,
-                    epochs=args.epochs,
-                    delay=args.delay,
-                    dropout=args.dropout,
-                    batch_size=args.batch_size,
-                    lr=args.learning_rate,
-                    momentum=args.momentum,
-                    decay= args.decay,
-                    data_aug=args.data_aug,
-                    train = args.train,
-                    augment = args.augment,
-                    emd = args.emd,
-                    label_inter = args.label_inter,
-                    proximal = args.proximal,
-                    box = args.box,
-                    graph = args.graph,
-                    method = args.method,
-                    block_num = args.block_num,
-                    beta = args.beta,
-                    reg = args.reg,
-                    itermax = args.itermax,
-                    in_batch = args.in_batch,
-                    p = args.prob,
-                    mixup_alpha = args.mixup_alpha,
-                    job_id=args.job_id,
-                    add_name=args.add_name,
-                    jsd=args.jsd,
-                    jsd_lam=args.jsd_lam,
-                    augmix=args.augmix)
-    
+        exp_name = experiment_name_non_mnist()
         exp_dir = args.root_dir+exp_name
 
         if not os.path.exists(exp_dir):
@@ -497,7 +483,6 @@ def main():
     args.num_classes = num_classes
 
     net = torch.nn.DataParallel(net, device_ids=list(range(args.ngpu)))
-
     optimizer = torch.optim.SGD(net.parameters(), state['learning_rate'], momentum=state['momentum'],
                 weight_decay=state['decay'], nesterov=True)
 
