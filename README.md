@@ -1,5 +1,3 @@
-# Manifold_mixup Supervised
-
 ### Requirements
 This code has been tested with  
 python 3.6.8  
