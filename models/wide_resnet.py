@@ -79,43 +79,11 @@ class Wide_ResNet(nn.Module):
             self.in_planes = planes
 
         return nn.Sequential(*layers)
-
-    """  
-    ## Modified WRN architecture###
-    def __init__(self, depth, widen_factor, dropout_rate, num_classes):
-        super(Wide_ResNet, self).__init__()
-        self.in_planes = 16
-
-        assert ((depth-4)%6 ==0), 'Wide-resnet_v2 depth should be 6n+4'
-        n = (depth-4)/6
-        k = widen_factor
-        #self.mixup_hidden = mixup_hidden
-
-        print('| Wide-Resnet %dx%d' %(depth, k))
-        nStages = [16, 16*k, 32*k, 64*k]
-
-        self.conv1 = conv3x3(3,nStages[0])
-        self.bn1 = nn.BatchNorm2d(nStages[0])
-        self.layer1 = self._wide_layer(wide_basic, nStages[1], n, dropout_rate, stride=1)
-        self.layer2 = self._wide_layer(wide_basic, nStages[2], n, dropout_rate, stride=2)
-        self.layer3 = self._wide_layer(wide_basic, nStages[3], n, dropout_rate, stride=2)
-        #self.bn1 = nn.BatchNorm2d(nStages[3], momentum=0.9)
-        self.linear = nn.Linear(nStages[3], num_classes)
-
-    def _wide_layer(self, block, planes, num_blocks, dropout_rate, stride):
-        strides = [stride] + [1]*(num_blocks-1)
-        layers = []
-
-        for stride in strides:
-            layers.append(block(self.in_planes, planes, dropout_rate, stride))
-            self.in_planes = planes
-
-        return nn.Sequential(*layers)
-    """
+    
 
     def forward(self, x, target= None, mixup=False, mixup_hidden=False, mixup_alpha=None, in_batch=False, p=1.0,
                 emd=False, proximal=True, reg=1e-5, itermax=10, label_inter=False, mean=None, std=None,
-                box=False, graph=False, method='random', grad=None, block_num=32, beta=0.0):
+                box=False, graph=False, method='random', grad=None, block_num=32, beta=0.0, gamma=0., neigh_size=2, n_labels=2):
     
         if self.per_img_std:
             x = per_image_standardization(x)
@@ -136,21 +104,10 @@ class Wide_ResNet(nn.Module):
         if target is not None :
             target_reweighted = to_one_hot(target,self.num_classes)
         
-        '''
-        if target is not None:
-            # brief test
-            indices = np.random.permutation(out.size(0))
-            out = torch.cat([out, out[indices]], dim=-1)
-            #out2 = torch.cat([out[indices], out], dim=-1)
-            #out = torch.cat([out1, out2], dim=-2)
-
-            target_reweighted = 0.5 * target_reweighted + 0.5 * target_reweighted[indices]
-        '''
-
         if layer_mix == 0: 
             out, target_reweighted = mixup_process(out, target_reweighted, lam=lam, p=p, in_batch=in_batch, 
                     emd=emd, proximal=proximal, reg=reg, itermax=itermax, label_inter=label_inter, mean=mean, std=std,
-                    box=box, graph=graph, method=method, grad=grad, block_num=block_num, beta=beta)
+                    box=box, graph=graph, method=method, grad=grad, block_num=block_num, beta=beta, gamma=gamma, neigh_size=neigh_size, n_labels=n_labels)
 
         out = self.conv1(out)
         out = self.layer1(out)
