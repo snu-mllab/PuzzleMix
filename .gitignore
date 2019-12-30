@@ -3,4 +3,4 @@ data_r/
 experiments_r/
 robust_test/
 checkpoints_r/
-
+*.pyc
