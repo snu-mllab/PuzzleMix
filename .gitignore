@@ -1,6 +1,6 @@
 *.par.*
-data_r/
-experiments_r/
+data/
+experiments/
 robust_test/
-checkpoints_r/
+checkpoints/
 *.pyc
