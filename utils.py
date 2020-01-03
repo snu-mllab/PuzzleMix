@@ -331,9 +331,9 @@ def barycenter_conv2d(input1, input2, reg=2e-3, weights=None, numItermax=10000, 
 
 def mixup_process(out, target_reweighted, lam, p=1.0, in_batch=0, hidden=0,
                   emd=0, proximal=0, reg=1e-5, itermax=1, label_inter=0, mean=None, std=None,
-                  box=0, graph=0, method='random', grad=None, block_num=-1, beta=0.0, gamma=0., neigh_size=2, n_labels=2):
+                  box=0, graph=0, method='random', grad=None, block_num=-1, beta=0.0, gamma=0., neigh_size=2, n_labels=2, label_cost='l2'):
     if block_num == -1:
-        block_num = 2**np.random.randint(0, 5)
+        block_num = 2**np.random.randint(1, 5)
     if in_batch:
         mix_idx = int(float(out.shape[0]) * p)
         indices = np.random.permutation(mix_idx)
@@ -353,9 +353,12 @@ def mixup_process(out, target_reweighted, lam, p=1.0, in_batch=0, hidden=0,
             lam = lam.cpu().numpy()[0]
             out, ratio = mixup_box(out, out[indices], grad, grad[indices], method=method, alpha=lam)
         elif graph:
-            lam = lam.cpu().numpy()[0]
-            out, ratio = mixup_graph(out, out[indices], grad, grad[indices], block_num=block_num, method=method,
-                         alpha=lam, beta=beta, gamma=gamma, neigh_size=neigh_size, n_labels=n_labels, mean=mean, std=std)
+            if block_num > 1:
+                lam = lam.cpu().numpy()[0]
+                out, ratio = mixup_graph(out, out[indices], grad, grad[indices], block_num=block_num, method=method,
+                             alpha=lam, beta=beta, gamma=gamma, neigh_size=neigh_size, n_labels=n_labels, label_cost=label_cost, mean=mean, std=std)
+            else: 
+                ratio = torch.ones(out.shape[0], device='cuda')
         elif emd:
             if not hidden:
                 out, ratio = barycenter_conv2d(out, out[indices], reg=reg, weights=lam, numItermax=itermax, mean=mean, std=std, v_max=1., return_alpha=label_inter, proximal=proximal)
@@ -447,7 +450,7 @@ class Cutout(object):
         return img
 
 '''code for cutmix'''
-def graphcut_multi(unary1, unary2, pw_x, pw_y, beta, n_labels=2):
+def graphcut_multi(unary1, unary2, pw_x, pw_y, beta, n_labels=2, label_cost='l2'):
     block_num = unary1.shape[0]
     alpha = 1000 * block_num ** 2
     unary_cost =  np.stack([(1-i) * alpha * unary1 + i * alpha * unary2 for i in np.linspace(0,1, n_labels)], axis=-1).astype(np.int32)
@@ -455,7 +458,14 @@ def graphcut_multi(unary1, unary2, pw_x, pw_y, beta, n_labels=2):
     pairwise_cost = np.zeros(shape=[n_labels, n_labels], dtype=np.float32)
     for i in range(n_labels):
         for j in range(n_labels):
-            pairwise_cost[i, j] = (i-j)**2 / (n_labels-1)**2
+            if label_cost=='l2':
+                pairwise_cost[i, j] = (i-j)**2 / (n_labels-1)**2
+            elif label_cost=='l1': 
+                pairwise_cost[i, j] = abs(i-j) / (n_labels-1)
+            elif label_cost=='l4': 
+                pairwise_cost[i, j] = (i-j)**4 / (n_labels-1)**4
+            else:
+                raise AssertionError('Wrong label cost type!')
 
     pw_x = (alpha * (pw_x + beta)).astype(np.int32)
     pw_y = (alpha * (pw_y + beta)).astype(np.int32)
@@ -538,9 +548,10 @@ def mixup_box(input1, input2, grad1, grad2, method='random', alpha=0.5):
     return input1, ratio
 
 
-def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alpha=0.5, beta=0., gamma=0., neigh_size=2, n_labels=2, mean=None, std=None):
+def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alpha=0.5, beta=0., gamma=0., neigh_size=2, n_labels=2, label_cost='l2', mean=None, std=None):
     batch_size, _, _, width = input1.shape
     block_size = width // block_num
+    neigh_size = min(neigh_size, block_size)
     ratio = np.zeros([batch_size])
     beta = beta/block_num/16
 
@@ -574,7 +585,7 @@ def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alph
         pw_x[:, 0, 0], pw_y[:, 0, 0] = neigh_penalty(input_pool, input_pool, k)
         pw_x[:, 1, 1], pw_y[:, 1, 1] = pw_x[:, 0, 0], pw_y[:, 0, 0]
         pw_x = pw_x.detach().cpu().numpy()
-        pw_y = pw_y.detach().cpu().numpy()x`
+        pw_y = pw_y.detach().cpu().numpy()
 
         for i in range(batch_size):
             pw_x_i = beta * gamma * pw_x[i]
@@ -681,7 +692,7 @@ def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alph
             pw_x_i = (pw_x_i[1,0] + pw_x_i[0,1] - pw_x_i[1,1] - pw_x_i[0,0])/2
             pw_y_i = (pw_y_i[1,0] + pw_y_i[0,1] - pw_y_i[1,1] - pw_y_i[0,0])/2
 
-            mask.append(graphcut_multi(unary2[i], unary1[i], pw_x_i, pw_y_i, beta, n_labels))
+            mask.append(graphcut_multi(unary2[i], unary1[i], pw_x_i, pw_y_i, beta, n_labels, label_cost))
             ratio[i] = mask[i].sum()
 
         mask = torch.tensor(mask, dtype=torch.float32, device='cuda')

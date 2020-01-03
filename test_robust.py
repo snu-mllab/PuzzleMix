@@ -102,8 +102,6 @@ testloader = DataLoader(dataset, batch_size=100)
 
 prec1_total = 0
 prec5_total = 0
-prec1_total_best = 0
-prec5_total_best = 0
 for batch_idx, (input, target) in enumerate(testloader):
     with torch.no_grad():
         input = input.cuda()
@@ -114,7 +112,7 @@ for batch_idx, (input, target) in enumerate(testloader):
         prec1_total += prec1.item()
         prec5_total += prec5.item()
         
-print("prec1: {:.2f}".format(prec1_total/100))
+print("clean: {:.2f}".format(prec1_total/100))
 
 
 # Input Corruption Test
@@ -126,7 +124,7 @@ for path in dataset_cifar100_dist_list:
     if name == 'labels':
         continue
         
-    print("Distortion: {}".format(name), end='  ')
+    print("{}: ".format(name), end=' ')
     dataset_cifar100_dist = np.load(path)
     dataset_cifar100_dist = dataset_cifar100_dist.reshape(5, 100, 100, 32, 32, 3)
     
