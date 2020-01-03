@@ -123,7 +123,7 @@ def load_data(data_aug, batch_size,workers,dataset, data_target_dir):
     return train_loader, test_loader, num_classes
 
 
-def load_data_subset(data_aug, batch_size,workers,dataset, data_target_dir, labels_per_class=100, valid_labels_per_class = 500, mixup_alpha=1, augment=False, augmix=False):
+def load_data_subset(data_aug, batch_size,workers,dataset, data_target_dir, labels_per_class=100, valid_labels_per_class = 500, mixup_alpha=1, augmix=False):
     ## copied from GibbsNet_pytorch/load.py
     import numpy as np
     from functools import reduce
