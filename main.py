@@ -89,6 +89,7 @@ parser.add_argument('--beta', type=float, default=0.0)
 parser.add_argument('--gamma', type=float, default=0.0, help='[0,1]')
 parser.add_argument('--neigh_size', type=int, default=2)
 parser.add_argument('--n_labels', type=int, default=2)
+parser.add_argument('--label_cost', type=str, default='l2')
 
 parser.add_argument('--jsd', type=str2bool, default=False)
 parser.add_argument('--jsd_lam', type=float, default=12)
@@ -139,7 +140,6 @@ def experiment_name_non_mnist(dataset=args.dataset,
                     decay= args.decay,
                     data_aug=args.data_aug,
                     train = args.train,
-                    augment = args.augment,
                     emd = args.emd,
                     label_inter = args.label_inter,
                     proximal = args.proximal,
@@ -150,6 +150,8 @@ def experiment_name_non_mnist(dataset=args.dataset,
                     beta = args.beta,
                     gamma=args.gamma,
                     n_labels = args.n_labels,
+                    neigh_size = args.neigh_size,
+                    label_cost = args.label_cost,
                     reg = args.reg,
                     itermax = args.itermax,
                     in_batch = args.in_batch,
@@ -165,8 +167,6 @@ def experiment_name_non_mnist(dataset=args.dataset,
     exp_name += '{}'.format(labels_per_class)
     exp_name += '_arch_'+str(arch)
     exp_name += '_train_'+str(train)
-    if augment:
-        exp_name += '_aug'
     if label_inter:
         exp_name += '_label'
     if proximal:
@@ -176,7 +176,7 @@ def experiment_name_non_mnist(dataset=args.dataset,
     if box:
         exp_name += '_box_' + method
     if graph:
-        exp_name += '_graph_' + method + '_block' + str(block_num) + '_beta_' + str(beta) + '_gamma_' + str(gamma) + '_n_labels_' + str(n_labels)
+        exp_name += '_graph_' + method + '_block' + str(block_num) + '_beta_' + str(beta) + '_gamma_' + str(gamma) + '_n_labels_' + str(n_labels) + '_neigh_' + str(neigh_size) + '_cost_' + str(label_cost)
     if augmix:
         exp_name += '_augmix'
     if in_batch:
@@ -342,8 +342,8 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
             input_var, target_var = Variable(input).float(), Variable(target)
             output, reweighted_target = model(input_var,target_var, mixup= True, mixup_alpha = args.mixup_alpha, p=args.prob, in_batch=args.in_batch,
                     emd=args.emd, proximal=args.proximal, reg=args.reg, itermax=args.itermax, label_inter=args.label_inter, mean=mean, std=std,
-                    box=args.box, graph=args.graph, method=args.method, grad=unary, block_num=args.block_num, beta=args.beta, gamma=args.gamma, neigh_size=args.neigh_size, n_labels=args.n_labels)
-            loss = bce_loss(softmax(output), reweighted_target)#mixup_criterion(target_a, target_b, lam)
+                    box=args.box, graph=args.graph, method=args.method, grad=unary, block_num=args.block_num, beta=args.beta, gamma=args.gamma, neigh_size=args.neigh_size, n_labels=args.n_labels, label_cost=args.label_cost)
+            loss = bce_loss(softmax(output), reweighted_target)
             if args.augmix == 1 and args.jsd == 1:
                 loss += loss_JSD
 
@@ -462,7 +462,7 @@ def main():
         train_loader, valid_loader, _ , test_loader, num_classes = load_data_subset_unpre(args.data_aug, args.batch_size, 2 ,args.dataset, args.data_dir,  labels_per_class = args.labels_per_class, valid_labels_per_class = args.valid_labels_per_class)
     else:
         per_img_std = False
-        train_loader, valid_loader, _ , test_loader, num_classes = load_data_subset(args.data_aug, args.batch_size, 2 ,args.dataset, args.data_dir,  labels_per_class = args.labels_per_class, valid_labels_per_class = args.valid_labels_per_class, mixup_alpha = args.mixup_alpha, augment=args.augment, augmix=args.augmix)
+        train_loader, valid_loader, _ , test_loader, num_classes = load_data_subset(args.data_aug, args.batch_size, 2 ,args.dataset, args.data_dir,  labels_per_class = args.labels_per_class, valid_labels_per_class = args.valid_labels_per_class, mixup_alpha = args.mixup_alpha, augmix=args.augmix)
     
 
     if args.dataset == 'tiny-imagenet-200':
@@ -479,7 +479,7 @@ def main():
 
     print_log("=> creating model '{}'".format(args.arch), log)
     net = models.__dict__[args.arch](num_classes,args.dropout,per_img_std, stride).cuda()
-    print_log("=> network :\n {}".format(net), log)
+    # print_log("=> network :\n {}".format(net), log)
     args.num_classes = num_classes
 
     net = torch.nn.DataParallel(net, device_ids=list(range(args.ngpu)))
@@ -589,7 +589,8 @@ def main():
     
     acc_var = np.maximum(np.max(test_acc[-10:])- np.median(test_acc[-10:]), np.median(test_acc[-10:]) - np.min(test_acc[-10:]))
     print_log("final 10 epoch acc (median) : {:.2f} (+- {:.2f})".format(np.median(test_acc[-10:]), acc_var), log)
-    log.close()
+    if args.log_off:
+        log.close()
 
 
 if __name__ == '__main__':
