@@ -331,7 +331,7 @@ def barycenter_conv2d(input1, input2, reg=2e-3, weights=None, numItermax=10000, 
 
 def mixup_process(out, target_reweighted, lam, p=1.0, in_batch=0, hidden=0,
                   emd=0, proximal=0, reg=1e-5, itermax=1, label_inter=0, mean=None, std=None,
-                  box=0, graph=0, method='random', grad=None, block_num=-1, beta=0.0, gamma=0., neigh_size=2, n_labels=2, label_cost='l2'):
+                  box=0, graph=0, method='random', grad=None, block_num=-1, beta=0.0, gamma=0., eta=0.2, neigh_size=2, n_labels=2, label_cost='l2'):
     if block_num == -1:
         block_num = 2**np.random.randint(1, 5)
     if in_batch:
@@ -356,7 +356,7 @@ def mixup_process(out, target_reweighted, lam, p=1.0, in_batch=0, hidden=0,
             if block_num > 1:
                 lam = lam.cpu().numpy()[0]
                 out, ratio = mixup_graph(out, out[indices], grad, grad[indices], block_num=block_num, method=method,
-                             alpha=lam, beta=beta, gamma=gamma, neigh_size=neigh_size, n_labels=n_labels, label_cost=label_cost, mean=mean, std=std)
+                             alpha=lam, beta=beta, gamma=gamma, eta=eta, neigh_size=neigh_size, n_labels=n_labels, label_cost=label_cost, mean=mean, std=std)
             else: 
                 ratio = torch.ones(out.shape[0], device='cuda')
         elif emd:
@@ -450,12 +450,22 @@ class Cutout(object):
         return img
 
 '''code for cutmix'''
-def graphcut_multi(unary1, unary2, pw_x, pw_y, beta, n_labels=2, label_cost='l2'):
+def graphcut_multi(unary1, unary2, pw_x, pw_y, alpha, beta, eta, n_labels=2, label_cost='l2'):
     block_num = unary1.shape[0]
-    alpha = 1000 * block_num ** 2
-    unary_cost =  np.stack([(1-i) * alpha * unary1 + i * alpha * unary2 for i in np.linspace(0,1, n_labels)], axis=-1).astype(np.int32)
-
+    
+    large_val = 1000 * block_num ** 2 
+    
+    if n_labels == 2:
+        prior= eta * np.array([-np.log(alpha + 1e-8), -np.log(1 - alpha + 1e-8)]) / block_num ** 2
+    elif n_labels == 3:
+        prior= eta * np.array([-np.log(alpha**2 + 1e-8), -np.log(2 * alpha * (1-alpha) + 1e-8), -np.log((1 - alpha)**2 + 1e-8)]) / block_num ** 2
+    elif n_labels == 4:
+        prior= eta * np.array([-np.log(alpha**3 + 1e-8), -np.log(3 * alpha **2 * (1-alpha) + 1e-8), 
+                             -np.log(3 * alpha * (1-alpha) **2 + 1e-8), -np.log((1 - alpha)**3 + 1e-8)]) / block_num ** 2
+        
+    unary_cost =  (large_val * np.stack([(1-lam) * unary1 + lam * unary2 + prior[i] for i, lam in enumerate(np.linspace(0,1, n_labels))], axis=-1)).astype(np.int32)
     pairwise_cost = np.zeros(shape=[n_labels, n_labels], dtype=np.float32)
+
     for i in range(n_labels):
         for j in range(n_labels):
             if label_cost=='l2':
@@ -467,8 +477,8 @@ def graphcut_multi(unary1, unary2, pw_x, pw_y, beta, n_labels=2, label_cost='l2'
             else:
                 raise AssertionError('Wrong label cost type!')
 
-    pw_x = (alpha * (pw_x + beta)).astype(np.int32)
-    pw_y = (alpha * (pw_y + beta)).astype(np.int32)
+    pw_x = (large_val * (pw_x + beta)).astype(np.int32)
+    pw_y = (large_val * (pw_y + beta)).astype(np.int32)
 
     labels = 1.0 - gco.cut_grid_graph(unary_cost, pairwise_cost, pw_x, pw_y, algorithm='swap')/(n_labels-1)
     mask = labels.reshape(block_num, block_num)
@@ -548,7 +558,7 @@ def mixup_box(input1, input2, grad1, grad2, method='random', alpha=0.5):
     return input1, ratio
 
 
-def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alpha=0.5, beta=0., gamma=0., neigh_size=2, n_labels=2, label_cost='l2', mean=None, std=None):
+def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alpha=0.5, beta=0., gamma=0., eta=0.2, neigh_size=2, n_labels=2, label_cost='l2', mean=None, std=None):
     batch_size, _, _, width = input1.shape
     block_size = width // block_num
     neigh_size = min(neigh_size, block_size)
@@ -657,12 +667,12 @@ def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alph
 
     elif method == 'mix':
         mask=[]
-        unary1 = unary1.detach().cpu().numpy() + np.sqrt(1- (1-alpha)**2) / block_num ** 2
-        unary2 = unary2.detach().cpu().numpy() + np.sqrt(1- alpha**2) / block_num ** 2
+        unary1 = unary1.detach().cpu().numpy()
+        unary2 = unary2.detach().cpu().numpy()
 
         ### Add unnormalize tern !
-        input1_pool = F.avg_pool2d(input1*std+mean, neigh_size)
-        input2_pool = F.avg_pool2d(input2*std+mean, neigh_size)
+        input1_pool = F.avg_pool2d(input1 * std + mean, neigh_size)
+        input2_pool = F.avg_pool2d(input2 * std + mean, neigh_size)
 
         pw_x = torch.zeros([batch_size, 2, 2, block_num-1, block_num], device='cuda')
         pw_y = torch.zeros([batch_size, 2, 2, block_num, block_num-1], device='cuda')
@@ -685,14 +695,14 @@ def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alph
             unary1[i][1:,:] += (pw_x_i[1,0] + pw_x_i[0,0])/2.
 
             unary2[i][:,:-1] += (pw_y_i[1,0] + pw_y_i[1,1])/2
-            unary1[i][:,:-1] += (pw_y_i[0,1] + pw_y_i[0,0]) / 2
+            unary1[i][:,:-1] += (pw_y_i[0,1] + pw_y_i[0,0])/2
             unary2[i][:,1:] += (pw_y_i[0,1] + pw_y_i[1,1])/2
-            unary1[i][:,1:] += (pw_y_i[1,0] + pw_y_i[0,0]) / 2
+            unary1[i][:,1:] += (pw_y_i[1,0] + pw_y_i[0,0])/2
 
             pw_x_i = (pw_x_i[1,0] + pw_x_i[0,1] - pw_x_i[1,1] - pw_x_i[0,0])/2
             pw_y_i = (pw_y_i[1,0] + pw_y_i[0,1] - pw_y_i[1,1] - pw_y_i[0,0])/2
 
-            mask.append(graphcut_multi(unary2[i], unary1[i], pw_x_i, pw_y_i, beta, n_labels, label_cost))
+            mask.append(graphcut_multi(unary2[i], unary1[i], pw_x_i, pw_y_i, alpha, beta, eta, n_labels, label_cost))
             ratio[i] = mask[i].sum()
 
         mask = torch.tensor(mask, dtype=torch.float32, device='cuda')

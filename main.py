@@ -3,6 +3,7 @@ from __future__ import division
 
 import os, sys, shutil, time, random
 sys.path.append('..')
+from glob import glob
 import argparse
 from distutils.dir_util import copy_tree
 from shutil import rmtree
@@ -64,7 +65,7 @@ parser.add_argument('--arch', metavar='ARCH', default='resnext29_8_64', choices=
 parser.add_argument('--initial_channels', type=int, default=64, choices=(16,64))
 # Optimization options
 parser.add_argument('--epochs', type=int, default=300, help='Number of epochs to train.')
-parser.add_argument('--delay', type=int, default=0, help='When to start augment')
+parser.add_argument('--delay', type=int, default=0, help='When to start mixing')
 
 parser.add_argument('--train', type=str, default='vanilla', choices=['vanilla', 'mixup', 'mixup_hidden','cutout'])
 parser.add_argument('--in_batch', type=str2bool, default=False)
@@ -83,11 +84,12 @@ parser.add_argument('--itermax', type=int, default=10)
 parser.add_argument('--cutout', type=int, default=16, help='size of cut out')
 parser.add_argument('--box', type=str2bool, default=False)
 parser.add_argument('--graph', type=str2bool, default=False)
-parser.add_argument('--method', type=str, default='random', choices=['random', 'cut', 'cut_small', 'paste','mix'])
+parser.add_argument('--method', type=str, default='mix', choices=['random', 'cut', 'cut_small', 'paste','mix'])
 parser.add_argument('--block_num', type=int, default=-1)
 parser.add_argument('--beta', type=float, default=0.0)
 parser.add_argument('--gamma', type=float, default=0.0, help='[0,1]')
-parser.add_argument('--neigh_size', type=int, default=2)
+parser.add_argument('--eta', type=float, default=0.2)
+parser.add_argument('--neigh_size', type=int, default=16)
 parser.add_argument('--n_labels', type=int, default=2)
 parser.add_argument('--label_cost', type=str, default='l2')
 
@@ -114,7 +116,7 @@ parser.add_argument('--workers', type=int, default=2, help='number of data loadi
 # random seed
 parser.add_argument('--seed', default=0, type=int, help='manual seed')
 parser.add_argument('--add_name', type=str, default='')
-parser.add_argument('--log_off', action='store_true', default=False)
+parser.add_argument('--log_off', type=str2bool, default=False)
 parser.add_argument('--job_id', type=str, default='')
 
 args = parser.parse_args()
@@ -149,6 +151,7 @@ def experiment_name_non_mnist(dataset=args.dataset,
                     block_num = args.block_num,
                     beta = args.beta,
                     gamma=args.gamma,
+                    eta=args.eta,
                     n_labels = args.n_labels,
                     neigh_size = args.neigh_size,
                     label_cost = args.label_cost,
@@ -176,7 +179,7 @@ def experiment_name_non_mnist(dataset=args.dataset,
     if box:
         exp_name += '_box_' + method
     if graph:
-        exp_name += '_graph_' + method + '_block' + str(block_num) + '_beta_' + str(beta) + '_gamma_' + str(gamma) + '_n_labels_' + str(n_labels) + '_neigh_' + str(neigh_size) + '_cost_' + str(label_cost)
+        exp_name += '_graph_' + method + '_block' + str(block_num) + '_beta_' + str(beta) + '_gamma_' + str(gamma) + '_eta_' +str(eta) + '_n_labels_' + str(n_labels) + '_neigh_' + str(neigh_size) + '_cost_' + str(label_cost)
     if augmix:
         exp_name += '_augmix'
     if in_batch:
@@ -342,7 +345,7 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
             input_var, target_var = Variable(input).float(), Variable(target)
             output, reweighted_target = model(input_var,target_var, mixup= True, mixup_alpha = args.mixup_alpha, p=args.prob, in_batch=args.in_batch,
                     emd=args.emd, proximal=args.proximal, reg=args.reg, itermax=args.itermax, label_inter=args.label_inter, mean=mean, std=std,
-                    box=args.box, graph=args.graph, method=args.method, grad=unary, block_num=args.block_num, beta=args.beta, gamma=args.gamma, neigh_size=args.neigh_size, n_labels=args.n_labels, label_cost=args.label_cost)
+                    box=args.box, graph=args.graph, method=args.method, grad=unary, block_num=args.block_num, beta=args.beta, gamma=args.gamma, eta=args.eta, neigh_size=args.neigh_size, n_labels=args.n_labels, label_cost=args.label_cost)
             loss = bce_loss(softmax(output), reweighted_target)
             if args.augmix == 1 and args.jsd == 1:
                 loss += loss_JSD
@@ -427,6 +430,40 @@ def validate(val_loader, model, log):
 
   print_log('  **Test** Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f} Error@1 {error1:.3f} Loss: {losses.avg:.3f} '.format(top1=top1, top5=top5, error1=100-top1.avg, losses=losses), log)
   return top1.avg, losses.avg
+
+
+def test_robust(net, mean, std):
+    net.eval()
+    # Input Corruption Test
+    dataset_cifar100_dist_list = glob('/home/janghyun/Codes/Wasserstein_Preprocessor/manifold_mixup/data/Cifar100-C/*.npy')
+    label = np.load('/home/janghyun/Codes/Wasserstein_Preprocessor/manifold_mixup/data/Cifar100-C/labels.npy')
+
+    for path in dataset_cifar100_dist_list:
+        name = os.path.basename(path)[:-4]
+        if name == 'labels':
+            continue
+            
+        print("{:20}:".format(name), end=' ')
+        dataset_cifar100_dist = np.load(path)
+        dataset_cifar100_dist = dataset_cifar100_dist.reshape(5, 100, 100, 32, 32, 3)
+        
+        prec1_total = 0
+        prec5_total = 0
+        for level in range(5):
+            # print("(level{})".format(level+1), end='  ')
+            
+            for batch_idx, input in enumerate(dataset_cifar100_dist[level]):
+                with torch.no_grad():
+                    input = torch.tensor(input/255, dtype=torch.float32).permute(0,3,1,2).cuda()
+                    target = torch.tensor(label[batch_idx*100: (batch_idx+1)*100], dtype=torch.int64).cuda()
+                    
+                    output = net((input - mean)/std)
+                    prec1, prec5 = accuracy(output, target, topk=(1,5))
+                    prec1_total += prec1.item()
+                    prec5_total += prec5.item()
+                   
+        print("{:.2f}".format(prec1_total/500))
+
 
 best_acc = 0
 def main():
@@ -588,10 +625,13 @@ def main():
         plotting(exp_dir)
     
     acc_var = np.maximum(np.max(test_acc[-10:])- np.median(test_acc[-10:]), np.median(test_acc[-10:]) - np.min(test_acc[-10:]))
-    print_log("final 10 epoch acc (median) : {:.2f} (+- {:.2f})".format(np.median(test_acc[-10:]), acc_var), log)
-    if args.log_off:
-        log.close()
+    print_log("\nfinal 10 epoch acc (median) : {:.2f} (+- {:.2f})".format(np.median(test_acc[-10:]), acc_var), log)
 
+    test_robust(net, mean, std)
+
+    if not args.log_off:
+        log.close()
+    
 
 if __name__ == '__main__':
     main()
