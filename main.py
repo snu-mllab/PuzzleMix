@@ -505,8 +505,8 @@ def main():
     if args.dataset == 'tiny-imagenet-200':
         stride = 2 
         width = 64
-        mean = 127.5/255
-        std = 127.5/255
+        mean = torch.tensor([0.5] * 3, dtype=torch.float32).view(1,3,1,1).cuda()
+        std = torch.tensor([0.5] * 3, dtype=torch.float32).view(1,3,1,1).cuda()
     else:
         stride = 1
         width = 32
@@ -554,22 +554,6 @@ def main():
     test_loss=[]
     test_acc=[]
     
-    def cost_matrix(width):
-        C = np.zeros([width**2, width**2], dtype=np.float32)
-        for m_i in range(width**2):
-            i1 = m_i // width
-            j1 = m_i % width
-            for m_j in range(width**2):
-                i2 = m_j // width
-                j2 = m_j % width
-                C[m_i,m_j]= abs(i1-i2)**2 + abs(j1-j2)**2
-    
-        C = C/(width-1)**2
-        C = torch.tensor(C)
-        return C
-
-    #C_dict = {width:cost_matrix(width), width//2:cost_matrix(width//2), width//4:cost_matrix(width//4), width//8:cost_matrix(width//8) }
-
     for epoch in range(args.start_epoch, args.epochs):
         current_learning_rate = adjust_learning_rate(optimizer, epoch, args.gammas, args.schedule)
 
