@@ -185,12 +185,6 @@ def experiment_name_non_mnist(dataset=args.dataset,
         exp_name += '_augmix'
     if in_batch:
         exp_name += '_inbatch'
-    exp_name += '_p_' +str(p)
-    exp_name += '_m_alpha_'+str(mixup_alpha)
-    if dropout:
-        exp_name+='_do_'+'true'
-    else:
-        exp_name+='_do_'+'False'
     exp_name += '_eph_'+str(epochs)
     if delay>0:
         exp_name += '_delay'+str(delay)
