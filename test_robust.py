@@ -128,20 +128,20 @@ print("prec1: {:.2f}  prec1_best: {:.2f}   prec5: {:.2f}  prec5_best: {:.2f}".fo
 
 
 # Input Corruption Test
-dataset_cifar100_dist_list = glob('/home/janghyun/Codes/Wasserstein_Preprocessor/manifold_mixup/supervised/data/Cifar100-C/*.npy')
-label = np.load('/home/janghyun/Codes/Wasserstein_Preprocessor/manifold_mixup/supervised/data/Cifar100-C/labels.npy')
+dataset_cifar100_dist_list = glob('/home/janghyun/Codes/Wasserstein_Preprocessor/manifold_mixup/data/Cifar100-C/*.npy')
+label = np.load('/home/janghyun/Codes/Wasserstein_Preprocessor/manifold_mixup/data/Cifar100-C/labels.npy')
 
 for path in dataset_cifar100_dist_list:
     name = os.path.basename(path)[:-4]
     if name == 'labels':
         continue
         
-    print("Distortion: {}".format(name))
+    #print("Distortion: {}".format(name))
     dataset_cifar100_dist = np.load(path)
     dataset_cifar100_dist = dataset_cifar100_dist.reshape(5, 100, 100, 32, 32, 3)
     
     for level in range(5):
-        print("(level{})".format(level+1), end='  ')
+        #print("(level{})".format(level+1), end='  ')
         prec1_total = 0
         prec5_total = 0
         prec1_total_best = 0
@@ -155,13 +155,14 @@ for path in dataset_cifar100_dist_list:
                 output = net((input - mean)/std)
                 prec1, prec5 = accuracy(output, target, topk=(1,5))
                 prec1_total += prec1.item()
-                prec5_total += prec5.item()
+                #prec5_total += prec5.item()
                 
-                output = net_best((input - mean)/std)
-                prec1, prec5 = accuracy(output, target, topk=(1,5))
-                prec1_total_best += prec1.item()
-                prec5_total_best += prec5.item()
+                #output = net_best((input - mean)/std)
+                #prec1, prec5 = accuracy(output, target, topk=(1,5))
+                #prec1_total_best += prec1.item()
+                #prec5_total_best += prec5.item()
 
-        print("prec1: {:.2f}  prec1_best: {:.2f}   prec5: {:.2f}  prec5_best: {:.2f}".format(prec1_total/100, prec1_total_best/100, prec5_total/100, prec5_total_best/100))
+        #print("prec1: {:.2f}  prec1_best: {:.2f}   prec5: {:.2f}  prec5_best: {:.2f}".format(prec1_total/100, prec1_total_best/100, prec5_total/100, prec5_total_best/100))
+        print("{:.2f}".format(prec1_total/100))
 
 

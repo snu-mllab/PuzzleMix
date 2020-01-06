@@ -98,6 +98,9 @@ parser.add_argument('--momentum', type=float, default=0.9, help='Momentum.')
 parser.add_argument('--data_aug', type=int, default=1)
 parser.add_argument('--adv_unpre', action='store_true', default=False,
                      help= 'the adversarial examples will be calculated on real input space (not preprocessed)')
+parser.add_argument('--tsize', type=int, default=2)
+parser.add_argument('--no_mixup_aug', type=str2bool, default=False)
+
 parser.add_argument('--decay', type=float, default=0.0001, help='Weight decay (L2 penalty).')
 parser.add_argument('--schedule', type=int, nargs='+', default=[150, 225], help='Decrease learning rate at these epochs.')
 parser.add_argument('--gammas', type=float, nargs='+', default=[0.1, 0.1], help='LR is multiplied by gamma on schedule, number of gammas should be equal to schedule')
@@ -139,7 +142,6 @@ def experiment_name_non_mnist(dataset=args.dataset,
                     decay= args.decay,
                     data_aug=args.data_aug,
                     train = args.train,
-                    augment = args.augment,
                     emd = args.emd,
                     label_inter = args.label_inter,
                     proximal = args.proximal,
@@ -159,20 +161,21 @@ def experiment_name_non_mnist(dataset=args.dataset,
                     add_name=args.add_name,
                     jsd=args.jsd,
                     jsd_lam=args.jsd_lam,
-                    augmix=args.augmix):
+                    augmix=args.augmix,
+                    tsize = args.tsize,
+                    no_mixup_aug = args.no_mixup_aug,
+                    seed=args.seed):
 
     exp_name = dataset
     exp_name += '{}'.format(labels_per_class)
     exp_name += '_arch_'+str(arch)
     exp_name += '_train_'+str(train)
-    if augment:
-        exp_name += '_aug'
     if label_inter:
         exp_name += '_label'
     if proximal:
         exp_name += '_prox'
     if emd:
-        exp_name += '_emd'+str(itermax) + '_reg_' + str(reg)
+        exp_name += '_emd_reg_' + str(reg)
     if box:
         exp_name += '_box_' + method
     if graph:
@@ -195,10 +198,13 @@ def experiment_name_non_mnist(dataset=args.dataset,
     exp_name += '_mom_'+str(momentum)
     exp_name +='_decay_'+str(decay)
     exp_name += '_data_aug_'+str(data_aug)
+    exp_name += '_tsize_'+str(tsize)
+    exp_name += '_seed_'+str(seed)
+    if no_mixup_aug:
+        exp_name += '_no_mixup_aug'
     if job_id!=None:
         exp_name += '_job_id_'+str(job_id)
     if jsd:
-        exp_name += '_jsd_'+str(jsd)
         exp_name += '_jsd_lam_'+str(jsd_lam)
     if add_name!='':
         exp_name += '_add_name_'+str(add_name)
@@ -300,29 +306,30 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
                 m = np.float32(np.random.beta(1, 1))
                 n = np.float32(np.random.beta(1, 1))
                 input_clean = input[0].cuda()
-                if args.emd:
-                    input_aug1, _ = barycenter_conv2d(input[0], input[1], reg=1e-5, weights=torch.ones(input[0].size(0))*m, proximal=True, mean=mean.cuda(), std=std.cuda())
-                    if args.jsd:
-                        input_aug2, _ = barycenter_conv2d(input[0], input[2], reg=1e-5, weights=torch.ones(input[0].size(0))*n, proximal=True, mean=mean.cuda(), std=std.cuda())
+                if args.no_mixup_aug:
+                    input_aug1 = input[1].cuda()
+                    input_aug2 = input[2].cuda()
                 else:
-                    input_aug1 = ((1-m)*input[0] + m*input[1]).cuda()
-                    if args.jsd:
-                        input_aug2 = ((1-n)*input[0] + n*input[2]).cuda()
+                    if args.emd:
+                        input_aug1, _ = barycenter_conv2d(input[0], input[1], reg=1e-5, weights=torch.ones(input[0].size(0))*m, proximal=True, mean=mean.cuda(), std=std.cuda())
+                        if args.jsd:
+                            input_aug2, _ = barycenter_conv2d(input[0], input[2], reg=1e-5, weights=torch.ones(input[0].size(0))*n, proximal=True, mean=mean.cuda(), std=std.cuda())
+                    else:
+                        input_aug1 = ((1-m)*input[0] + m*input[1]).cuda()
+                        if args.jsd:
+                            input_aug2 = ((1-n)*input[0] + n*input[2]).cuda()
                 
                 if args.jsd:
                     logits_all = model(torch.cat([input_clean, input_aug1.float(), input_aug2.float()], 0).squeeze())
                     logits_clean, logits_aug1, logits_aug2 = torch.split(logits_all, input[0].size(0))
                 
-                    p_clean = F.softmax(logits_clean, dim=1)
-                    p_aug1 = F.softmax(logits_aug1, dim=1)
-                    p_aug2 = F.softmax(logits_aug2, dim=1)
-
+                    p_clean = torch.clamp(F.softmax(logits_clean, dim=1), 1e-7, 1)
+                    p_aug1 = torch.clamp(F.softmax(logits_aug1, dim=1), 1e-7, 1)
+                    p_aug2 = torch.clamp(F.softmax(logits_aug2, dim=1), 1e-7, 1)
+                    
                     p_mixture = torch.clamp((p_clean + p_aug1 + p_aug2) / 3., 1e-7, 1).log()
+                    output = logits_clean
                 
-                    loss_JSD = args.jsd_lam * (F.kl_div(p_mixture, p_clean, reduction='batchmean') +
-                              F.kl_div(p_mixture, p_aug1, reduction='batchmean') +
-                              F.kl_div(p_mixture, p_aug2, reduction='batchmean')) / 3.
-        
                 input = input_aug1.float()
             
             if args.box or args.graph:
@@ -338,14 +345,19 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
 
                 unary = torch.sqrt(torch.mean(input_var.grad **2, dim=1))
                 model.train()
-                
-            input_var, target_var = Variable(input).float(), Variable(target)
-            output, reweighted_target = model(input_var,target_var, mixup= True, mixup_alpha = args.mixup_alpha, p=args.prob, in_batch=args.in_batch,
+            
+            if args.jsd:
+                loss = F.nll_loss(p_clean.log(), target)
+                loss += args.jsd_lam * (F.kl_div(p_mixture, p_clean, reduction='batchmean') +
+                              F.kl_div(p_mixture, p_aug1, reduction='batchmean') +
+                              F.kl_div(p_mixture, p_aug2, reduction='batchmean')) / 3.
+
+            else:
+                input_var, target_var = Variable(input).float(), Variable(target)
+                output, reweighted_target = model(input_var,target_var, mixup= True, mixup_alpha = args.mixup_alpha, p=args.prob, in_batch=args.in_batch,
                     emd=args.emd, proximal=args.proximal, reg=args.reg, itermax=args.itermax, label_inter=args.label_inter, mean=mean, std=std,
                     box=args.box, graph=args.graph, method=args.method, grad=unary, block_num=args.block_num, beta=args.beta, gamma=args.gamma, neigh_size=args.neigh_size, n_labels=args.n_labels)
-            loss = bce_loss(softmax(output), reweighted_target)#mixup_criterion(target_a, target_b, lam)
-            if args.augmix == 1 and args.jsd == 1:
-                loss += loss_JSD
+                loss = bce_loss(softmax(output), reweighted_target)#mixup_criterion(target_a, target_b, lam)
 
         elif args.train== 'mixup_hidden':
             unary= None
@@ -369,7 +381,6 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
         prec1, prec5 = accuracy(output, target, topk=(1, 5))
         losses.update(loss.item(), input.size(0))
         top1.update(prec1.item(), input.size(0))
-        top5.update(prec5.item(), input.size(0))
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
@@ -380,7 +391,8 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
         batch_time.update(time.time() - end)
         end = time.time()
 
-        mixing_avg.append((0.5 - reweighted_target[reweighted_target>0]).abs().mean().cpu().numpy())
+        if not args.jsd:
+            mixing_avg.append((0.5 - reweighted_target[reweighted_target>0]).abs().mean().cpu().numpy())
         '''
         if i % args.print_freq == 0:
             print_log('  Epoch: [{:03d}][{:03d}/{:03d}]   '
@@ -393,7 +405,7 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
                 data_time=data_time, loss=losses, top1=top1, top5=top5) + time_string(), log)
         '''
 
-    if ((epoch) % 10 == 0):
+    if ((epoch) % 10 == 0) and not args.jsd:
         print_log("average mixing weight: {:.3f}".format(np.mean(mixing_avg) + 0.5), log)
     print_log('  **Train** Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f} Error@1 {error1:.3f}'.format(top1=top1, top5=top5, error1=100-top1.avg), log)
     return top1.avg, top5.avg, losses.avg
@@ -462,14 +474,14 @@ def main():
         train_loader, valid_loader, _ , test_loader, num_classes = load_data_subset_unpre(args.data_aug, args.batch_size, 2 ,args.dataset, args.data_dir,  labels_per_class = args.labels_per_class, valid_labels_per_class = args.valid_labels_per_class)
     else:
         per_img_std = False
-        train_loader, valid_loader, _ , test_loader, num_classes = load_data_subset(args.data_aug, args.batch_size, 2 ,args.dataset, args.data_dir,  labels_per_class = args.labels_per_class, valid_labels_per_class = args.valid_labels_per_class, mixup_alpha = args.mixup_alpha, augment=args.augment, augmix=args.augmix)
+        train_loader, valid_loader, _ , test_loader, num_classes = load_data_subset(args.data_aug, args.batch_size, 2 ,args.dataset, args.data_dir,  labels_per_class = args.labels_per_class, valid_labels_per_class = args.valid_labels_per_class, mixup_alpha = args.mixup_alpha, augmix=args.augmix, tsize=args.tsize)
     
 
     if args.dataset == 'tiny-imagenet-200':
         stride = 2 
         width = 64
-        mean = 127.5/255
-        std = 127.5/255
+        mean = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32).view(1,3,1,1).cuda()
+        std = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32).view(1,3,1,1).cuda()
     else:
         stride = 1
         width = 32
@@ -517,21 +529,6 @@ def main():
     test_loss=[]
     test_acc=[]
     
-    def cost_matrix(width):
-        C = np.zeros([width**2, width**2], dtype=np.float32)
-        for m_i in range(width**2):
-            i1 = m_i // width
-            j1 = m_i % width
-            for m_j in range(width**2):
-                i2 = m_j // width
-                j2 = m_j % width
-                C[m_i,m_j]= abs(i1-i2)**2 + abs(j1-j2)**2
-    
-        C = C/(width-1)**2
-        C = torch.tensor(C)
-        return C
-
-    #C_dict = {width:cost_matrix(width), width//2:cost_matrix(width//2), width//4:cost_matrix(width//4), width//8:cost_matrix(width//8) }
 
     for epoch in range(args.start_epoch, args.epochs):
         current_learning_rate = adjust_learning_rate(optimizer, epoch, args.gammas, args.schedule)

@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 import torch.nn.functional as F
 import augmentations
 import gco
+import ot
+from PIL import Image
 
 class AverageMeter(object):
   """Computes and stores the average and current value"""
@@ -321,7 +323,7 @@ def barycenter_conv2d(input1, input2, reg=2e-3, weights=None, numItermax=10000, 
     if mean is not None:
         output = (output - mean)/std
 
-    return output, weights
+    return output.float(), weights
 #    if return_alpha:
 #        return output, ratio
 #    else:
@@ -353,9 +355,12 @@ def mixup_process(out, target_reweighted, lam, p=1.0, in_batch=0, hidden=0,
             lam = lam.cpu().numpy()[0]
             out, ratio = mixup_box(out, out[indices], grad, grad[indices], method=method, alpha=lam)
         elif graph:
-            lam = lam.cpu().numpy()[0]
-            out, ratio = mixup_graph(out, out[indices], grad, grad[indices], block_num=block_num, method=method,
-                         alpha=lam, beta=beta, gamma=gamma, neigh_size=neigh_size, n_labels=n_labels, mean=mean, std=std)
+            if block_num > 1:
+                lam = lam.cpu().numpy()[0]
+                out, ratio = mixup_graph(out, out[indices], grad, grad[indices], block_num=block_num, method=method,
+                         alpha=lam, beta=beta, gamma=gamma, neigh_size=neigh_size, n_labels=n_labels, mean=mean, std=std, emd=emd)
+            else:
+                ratio = torch.ones(out.size(0), device='cuda')
         elif emd:
             if not hidden:
                 out, ratio = barycenter_conv2d(out, out[indices], reg=reg, weights=lam, numItermax=itermax, mean=mean, std=std, v_max=1., return_alpha=label_inter, proximal=proximal)
@@ -538,7 +543,7 @@ def mixup_box(input1, input2, grad1, grad2, method='random', alpha=0.5):
     return input1, ratio
 
 
-def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alpha=0.5, beta=0., gamma=0., neigh_size=2, n_labels=2, mean=None, std=None):
+def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alpha=0.5, beta=0., gamma=0., neigh_size=2, n_labels=2, mean=None, std=None, emd=0):
     batch_size, _, _, width = input1.shape
     block_size = width // block_num
     ratio = np.zeros([batch_size])
@@ -574,7 +579,7 @@ def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alph
         pw_x[:, 0, 0], pw_y[:, 0, 0] = neigh_penalty(input_pool, input_pool, k)
         pw_x[:, 1, 1], pw_y[:, 1, 1] = pw_x[:, 0, 0], pw_y[:, 0, 0]
         pw_x = pw_x.detach().cpu().numpy()
-        pw_y = pw_y.detach().cpu().numpy()x`
+        pw_y = pw_y.detach().cpu().numpy()
 
         for i in range(batch_size):
             pw_x_i = beta * gamma * pw_x[i]
@@ -691,6 +696,16 @@ def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alph
         raise AssertionError("wrong mixup method type !!")
 
     ratio = torch.tensor(ratio/block_num**2, dtype=torch.float32, device='cuda')
+
+    if n_labels == 3 and emd:
+        barycenter, _ = barycenter_conv2d(input1.clone().cuda(), input2.clone().cuda(), reg=1e-5, weights = torch.ones(input1.size(0), device='cuda') * 0.5, mean=mean, std=std)
+        return ((mask==1).float() * input1 + (mask==0.5).float() * barycenter + (mask==0).float() * input2), ratio
+
+    if n_labels == 4 and emd:
+        barycenter1, _ = barycenter_conv2d(input1.clone().cuda(), input2.clone().cuda(), reg=1e-5, weights = torch.ones(input1.size(0), device='cuda') * 2./3., mean=mean, std=std)
+        barycenter2, _ = barycenter_conv2d(input1.clone().cuda(), input2.clone().cuda(), reg=1e-5, weights = torch.ones(input1.size(0), device='cuda') * 1./3., mean=mean, std=std)
+        return ((mask==1).float()*input1 + (mask==2./3.).float()*barycenter1 + (mask==1./3.).float()*barycenter2 + (mask==0).float()*input2), ratio
+
     return mask * input1 + (1-mask) * input2, ratio
 
 
@@ -733,16 +748,45 @@ def aug(image, preprocess):
         for _ in range(depth):
             op = np.random.choice(augmentations.augmentations)
             image_aug = op(image_aug, 3)
-
+    
+    #mix = preprocess(image_aug)
         mix += ws[i] * preprocess(image_aug)
         
     
-    mixed = (1-m)*preprocess(image) + m*mix
+    #mixed = (1-m)*preprocess(image) + m*mix
     
     return mix
 
+def im2mat(I):
+    return I.reshape((I.shape[0]*I.shape[1], I.shape[2]))
+
+def mat2im(X, shape):
+    return X.reshape(shape)
+
+def minmax(I):
+    return np.clip(I, 0, 1)
+
+def color_adaptation(image1, image2):
+    img1_np = np.array(image1) / 255.
+    img2_np = np.array(image2) / 255.
+
+    X1 = im2mat(img1_np)
+    X2 = im2mat(img2_np)
+
+    idx = np.random.randint(X1.shape[0], size=(30,))
+
+    Xs = X1[idx, :]
+    Xt = X2[idx, :]
+
+    ot_emd = ot.da.EMDTransport()
+    ot_emd.fit(Xs=Xs, Xt=Xt)
+    transp_Xs_emd = ot_emd.transform(Xs=X1)
+
+    I1t = minmax(mat2im(transp_Xs_emd, img1_np.shape))
+
+    return Image.fromarray(np.uint8(I1t*255))
+
+
 if __name__ == "__main__":
     create_val_folder('data/tiny-imagenet-200')  # Call method to create validation image folders
-
-
 

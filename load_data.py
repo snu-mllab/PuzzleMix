@@ -60,70 +60,70 @@ def load_mnist(data_aug, batch_size, test_batch_size,cuda, data_target_dir):
     return train_loader, test_loader    
 
 
-def load_data(data_aug, batch_size,workers,dataset, data_target_dir):
-    
-    if dataset == 'cifar10':
-        mean = [x / 255 for x in [125.3, 123.0, 113.9]]
-        std = [x / 255 for x in [63.0, 62.1, 66.7]]
-    elif dataset == 'cifar100':
-        mean = [x / 255 for x in [129.3, 124.1, 112.4]]
-        std = [x / 255 for x in [68.2, 65.4, 70.4]]
-        
-    elif dataset == 'svhn':
-        mean = [x / 255 for x in [127.5, 127.5, 127.5]]
-        std = [x / 255 for x in [127.5, 127.5, 127.5]]
-    else:
-        assert False, "Unknow dataset : {}".format(dataset)
-    
-    if data_aug==1:
-        if dataset == 'svhn':
-            train_transform = transforms.Compose(
-                                             [ transforms.RandomCrop(32, padding=2), transforms.ToTensor(),
-                                              transforms.Normalize(mean, std)])
-            test_transform = transforms.Compose(
-                                            [transforms.ToTensor(), transforms.Normalize(mean, std)])
-        else:
-            train_transform = transforms.Compose(
-                                                 [transforms.RandomHorizontalFlip(), transforms.RandomCrop(32, padding=4), transforms.ToTensor(),
-                                                  transforms.Normalize(mean, std)])
-            test_transform = transforms.Compose(
-                                                [transforms.ToTensor(), transforms.Normalize(mean, std)])
-    else:
-        train_transform = transforms.Compose(
-                                             [ transforms.ToTensor(),
-                                              transforms.Normalize(mean, std)])
-        test_transform = transforms.Compose(
-                                            [transforms.ToTensor(), transforms.Normalize(mean, std)])
-    if dataset == 'cifar10':
-        train_data = datasets.CIFAR10(data_target_dir, train=True, transform=train_transform, download=True)
-        test_data = datasets.CIFAR10(data_target_dir, train=False, transform=test_transform, download=True)
-        num_classes = 10
-    elif dataset == 'cifar100':
-        train_data = datasets.CIFAR100(data_target_dir, train=True, transform=train_transform, download=False)
-        test_data = datasets.CIFAR100(data_target_dir, train=False, transform=test_transform, download=False)
-        num_classes = 100
-    elif dataset == 'svhn':
-        train_data = datasets.SVHN(data_target_dir, split='train', transform=train_transform, download=True)
-        test_data = datasets.SVHN(data_target_dir, split='test', transform=test_transform, download=True)
-        num_classes = 10
-    elif dataset == 'stl10':
-        train_data = datasets.STL10(data_target_dir, split='train', transform=train_transform, download=True)
-        test_data = datasets.STL10(data_target_dir, split='test', transform=test_transform, download=True)
-        num_classes = 10
-    elif dataset == 'imagenet':
-        assert False, 'Do not finish imagenet code'
-    else:
-        assert False, 'Do not support dataset : {}'.format(dataset)
+#def load_data(data_aug, batch_size,workers,dataset, data_target_dir):
+#    
+#    if dataset == 'cifar10':
+#        mean = [x / 255 for x in [125.3, 123.0, 113.9]]
+#        std = [x / 255 for x in [63.0, 62.1, 66.7]]
+#    elif dataset == 'cifar100':
+#        mean = [x / 255 for x in [129.3, 124.1, 112.4]]
+#        std = [x / 255 for x in [68.2, 65.4, 70.4]]
+#        
+#    elif dataset == 'svhn':
+#        mean = [x / 255 for x in [127.5, 127.5, 127.5]]
+#        std = [x / 255 for x in [127.5, 127.5, 127.5]]
+#    else:
+#        assert False, "Unknow dataset : {}".format(dataset)
+#    
+#    if data_aug==1:
+#        if dataset == 'svhn':
+#            train_transform = transforms.Compose(
+#                                             [ transforms.RandomCrop(32, padding=2), transforms.ToTensor(),
+#                                              transforms.Normalize(mean, std)])
+#            test_transform = transforms.Compose(
+#                                            [transforms.ToTensor(), transforms.Normalize(mean, std)])
+#        else:
+#            train_transform = transforms.Compose(
+#                                                 [transforms.RandomHorizontalFlip(), transforms.RandomCrop(32, padding=4), transforms.ToTensor(),
+#                                                  transforms.Normalize(mean, std)])
+#            test_transform = transforms.Compose(
+#                                                [transforms.ToTensor(), transforms.Normalize(mean, std)])
+#    else:
+#        train_transform = transforms.Compose(
+#                                             [ transforms.ToTensor(),
+#                                              transforms.Normalize(mean, std)])
+#        test_transform = transforms.Compose(
+#                                            [transforms.ToTensor(), transforms.Normalize(mean, std)])
+#    if dataset == 'cifar10':
+#        train_data = datasets.CIFAR10(data_target_dir, train=True, transform=train_transform, download=True)
+#        test_data = datasets.CIFAR10(data_target_dir, train=False, transform=test_transform, download=True)
+#        num_classes = 10
+#    elif dataset == 'cifar100':
+#        train_data = datasets.CIFAR100(data_target_dir, train=True, transform=train_transform, download=False)
+#        test_data = datasets.CIFAR100(data_target_dir, train=False, transform=test_transform, download=False)
+#        num_classes = 100
+#    elif dataset == 'svhn':
+#        train_data = datasets.SVHN(data_target_dir, split='train', transform=train_transform, download=True)
+#        test_data = datasets.SVHN(data_target_dir, split='test', transform=test_transform, download=True)
+#        num_classes = 10
+#    elif dataset == 'stl10':
+#        train_data = datasets.STL10(data_target_dir, split='train', transform=train_transform, download=True)
+#        test_data = datasets.STL10(data_target_dir, split='test', transform=test_transform, download=True)
+#        num_classes = 10
+#    elif dataset == 'imagenet':
+#        assert False, 'Do not finish imagenet code'
+#    else:
+#        assert False, 'Do not support dataset : {}'.format(dataset)
+#
+#    train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True,
+#                         num_workers=workers, pin_memory=True)
+#    test_loader = torch.utils.data.DataLoader(test_data, batch_size=batch_size, shuffle=False,
+#                        num_workers=workers, pin_memory=True)
+#    
+#    return train_loader, test_loader, num_classes
+#
 
-    train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True,
-                         num_workers=workers, pin_memory=True)
-    test_loader = torch.utils.data.DataLoader(test_data, batch_size=batch_size, shuffle=False,
-                        num_workers=workers, pin_memory=True)
-    
-    return train_loader, test_loader, num_classes
-
-
-def load_data_subset(data_aug, batch_size,workers,dataset, data_target_dir, labels_per_class=100, valid_labels_per_class = 500, mixup_alpha=1, augment=False, augmix=False):
+def load_data_subset(data_aug, batch_size,workers,dataset, data_target_dir, labels_per_class=100, valid_labels_per_class = 500, mixup_alpha=1, augment=False, augmix=False, tsize=2):
     ## copied from GibbsNet_pytorch/load.py
     import numpy as np
     from functools import reduce
@@ -170,15 +170,23 @@ def load_data_subset(data_aug, batch_size,workers,dataset, data_target_dir, labe
         elif dataset == 'tiny-imagenet-200':
             train_transform = transforms.Compose(
                                                  [transforms.RandomHorizontalFlip(),
-                                                  transforms.RandomCrop(64, padding=4),
+                                                  transforms.RandomCrop(64, padding=tsize),
                                                   transforms.ToTensor(),
                                                   transforms.Normalize(mean, std)])
             test_transform = transforms.Compose(
                                                 [transforms.ToTensor(), transforms.Normalize(mean, std)])
+            if augmix:
+                train_transform = transforms.Compose(
+                                        [transforms.RandomHorizontalFlip(),
+                                        transforms.RandomCrop(64, padding=tsize)])
+                preprocess = transforms.Compose([transforms.ToTensor(),
+                                                 transforms.Normalize(mean, std)])
+                test_transform = preprocess
+                                                    
         else:    
             train_transform = transforms.Compose(
                                                  [transforms.RandomHorizontalFlip(),
-                                                  transforms.RandomCrop(32, padding=2),
+                                                  transforms.RandomCrop(32, padding=tsize),
                                                   transforms.ToTensor(),
                                                   transforms.Normalize(mean, std)])
             test_transform = transforms.Compose(
@@ -186,7 +194,7 @@ def load_data_subset(data_aug, batch_size,workers,dataset, data_target_dir, labe
             if augmix:
                 train_transform = transforms.Compose(
                                                 [transforms.RandomHorizontalFlip(),
-                                                 transforms.RandomCrop(32, padding=2)])
+                                                 transforms.RandomCrop(32, padding=tsize)])
                 preprocess = transforms.Compose([transforms.ToTensor(),
                                                  transforms.Normalize(mean, std)])
                 test_transform = preprocess
@@ -218,6 +226,7 @@ def load_data_subset(data_aug, batch_size,workers,dataset, data_target_dir, labe
         train_data = datasets.CIFAR100(data_target_dir, train=True, transform=train_transform, download=True)
         test_data = datasets.CIFAR100(data_target_dir, train=False, transform=test_transform, download=True)
         num_classes = 100
+        #train_data = ColorAdaptationDataset(train_data, transform=preprocess)
         if augmix:
             train_data = AugMixDataset(train_data, preprocess)
     elif dataset == 'svhn':
@@ -239,6 +248,8 @@ def load_data_subset(data_aug, batch_size,workers,dataset, data_target_dir, labe
         train_data = datasets.ImageFolder(train_root, transform=train_transform)
         test_data = datasets.ImageFolder(validation_root,transform=test_transform)
         num_classes = 200
+        if augmix:
+            train_data = AugMixDataset(train_data, preprocess)
     elif dataset == 'imagenet':
         assert False, 'Do not finish imagenet code'
     else:
@@ -541,6 +552,26 @@ class AugMixDataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.dataset)
 
+class ColorAdaptationDataset(torch.utils.data.Dataset):
+    def __init__(self, dataset, transform=None):
+        self.dataset = dataset
+        self.transform = transform
+
+    def __getitem__(self, i):
+        x, y = self.dataset[i]
+        coin = np.random.randint(0, 2)
+        random_idx = np.random.randint(0, len(self.dataset))
+        x_target, _ = self.dataset[random_idx]
+        if coin:
+            x = color_adaptation(x, x_target)
+        
+        if self.transform is not None:
+            x = self.transform(x)
+        
+        return x, y
+
+    def __len__(self):
+        return len(self.dataset)
 
 
 if __name__ == '__main__':
