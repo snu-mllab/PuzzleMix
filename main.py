@@ -164,7 +164,7 @@ def experiment_name_non_mnist(dataset=args.dataset,
                     add_name=args.add_name,
                     jsd=args.jsd,
                     jsd_lam=args.jsd_lam,
-                    augmix=args.augmix
+                    augmix=args.augmix,
                     seed=args.seed):
 
     exp_name = dataset
