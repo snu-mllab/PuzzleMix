@@ -168,7 +168,6 @@ def experiment_name_non_mnist(dataset=args.dataset,
                     seed=args.seed):
 
     exp_name = dataset
-    exp_name += '{}'.format(labels_per_class)
     exp_name += '_arch_'+str(arch)
     exp_name += '_train_'+str(train)
     if label_inter:
