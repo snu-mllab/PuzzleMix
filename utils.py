@@ -581,7 +581,6 @@ def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alph
             ratio += val[:,0,0,0]
             mask = torch.tensor(mask, dtype=torch.float32, device='cuda')
             
-
     elif method == 'cut':
         mask=[]
         unary2 = unary2.detach().cpu().numpy() + np.sqrt(1- alpha**2) / block_num ** 2
@@ -663,7 +662,6 @@ def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alph
 
         mask = torch.tensor(mask, dtype=torch.float32, device='cuda')
         mask = F.interpolate(mask.unsqueeze(1), size=width)
-
 
     elif method == 'mix':
         mask=[]

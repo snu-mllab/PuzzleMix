@@ -81,7 +81,7 @@ def graphcut_multi(unary1, unary2, pw_x, pw_y, beta, n_labels=2):
     
     
 if __name__ == '__main__':
-    block_num = 3
+    block_num = 2
     n_labels = 3
     print('one sample test')
     beta=0.1
