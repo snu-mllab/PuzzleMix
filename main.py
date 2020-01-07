@@ -170,6 +170,8 @@ def experiment_name_non_mnist(dataset=args.dataset,
     exp_name = dataset
     exp_name += '_arch_'+str(arch)
     exp_name += '_train_'+str(train)
+    if mixup_alpha:
+        exp_name += '_m_alpha_'+str(mixup_alpha)
     if label_inter:
         exp_name += '_label'
     if proximal:
