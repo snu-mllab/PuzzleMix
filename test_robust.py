@@ -35,7 +35,7 @@ model_names = sorted(name for name in models.__dict__
 
 
 parser = argparse.ArgumentParser(description='Robustness test on CIFAR or ImageNet', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument('--dataset', type=str, default='cifar100', choices=['cifar10', 'cifar100', 'imagenet', 'svhn', 'stl10', 'mnist', 'tiny-imagenet-200'], help='Choose between Cifar10/100 and ImageNet.')
+parser.add_argument('--dataset', type=str, default='tiny-imagenet-200', choices=['cifar10', 'cifar100', 'imagenet', 'svhn', 'stl10', 'mnist', 'tiny-imagenet-200'], help='Choose between Cifar10/100 and ImageNet.')
 parser.add_argument('--arch', metavar='ARCH', default='preactresnet18', choices=model_names, help='model architecture: ' + ' | '.join(model_names) + ' (default: preresnet18)')
 parser.add_argument('--ckpt', default='', type=str, help='path to latest checkpoint (default: none)')
 parser.add_argument('--best', action='store_true')
@@ -78,6 +78,7 @@ else:
     mean = torch.tensor([x / 255 for x in [129.3, 124.1, 112.4]], dtype=torch.float32).view(1,3,1,1).cuda()
     std = torch.tensor([x / 255 for x in [68.2, 65.4, 70.4]], dtype=torch.float32).view(1,3,1,1).cuda()
 
+
 # Net load
 print("=> creating model '{}'".format(args.arch))
 net = models.__dict__[args.arch](num_classes, False, False, stride).cuda()
@@ -93,12 +94,17 @@ recorder = checkpoint['recorder']
 best_acc = recorder.max_accuracy(False)
 print("=> loaded checkpoint '{}' accuracy={:.2f} (epoch {})" .format(args.ckpt, best_acc, checkpoint['epoch']))
 
+
 net.eval()
 
 # Vanilla Test
 test_transform = transforms.Compose([transforms.ToTensor()])
-dataset = dset.CIFAR100(root='../data/cifar100', train=False, download=False, transform=test_transform)
-testloader = DataLoader(dataset, batch_size=100)
+if args.dataset == 'tiny-imagenet-200':
+    dataset = dset.ImageFolder(root='/home/janghyun/Codes/Wasserstein_Preprocessor/manifold_mixup/data/tiny-imagenet-200/val/images', transform=test_transform)
+else:
+    dataset = dset.CIFAR100(root='../data/cifar100', train=False, download=False, transform=test_transform)
+
+testloader = DataLoader(dataset, batch_size=100, num_workers=2, pin_memory=True)
 
 prec1_total = 0
 prec5_total = 0
@@ -116,33 +122,59 @@ print("clean: {:.2f}".format(prec1_total/100))
 
 
 # Input Corruption Test
-dataset_cifar100_dist_list = glob('/home/janghyun/Codes/Wasserstein_Preprocessor/manifold_mixup/data/Cifar100-C/*.npy')
-label = np.load('/home/janghyun/Codes/Wasserstein_Preprocessor/manifold_mixup/data/Cifar100-C/labels.npy')
+if args.dataset == 'tiny-imagenet-200':
+    dataset_tinyImagenet_dist_list = glob('/home/janghyun/Codes/Wasserstein_Preprocessor/manifold_mixup/data/tiny-imagenet-200-C/*')
 
-for path in dataset_cifar100_dist_list:
-    name = os.path.basename(path)[:-4]
-    if name == 'labels':
-        continue
+    for path in dataset_tinyImagenet_dist_list:
+        name = os.path.basename(path)
+        print("{}: ".format(name), end=' ')
+
+        for sever in range(1,6):
+            dataset = dset.ImageFolder(root=path+'/{}'.format(sever), transform=test_transform)
+            testloader = DataLoader(dataset, batch_size=100, num_workers=2, pin_memory=True)
+
+            prec1_total = 0
+            prec5_total = 0
+            for batch_idx, (input, target) in enumerate(testloader):
+                with torch.no_grad():
+                    input = input.cuda()
+                    target = target.cuda()
+                    
+                    output = net((input - mean)/std)
+                    prec1, prec5 = accuracy(output, target, topk=(1,5))
+                    prec1_total += prec1.item()
+                    prec5_total += prec5.item()
+            
+        print("{:.2f}".format(prec1_total/len(testloader)/5))
+
+else:
+    dataset_cifar100_dist_list = glob('/home/janghyun/Codes/Wasserstein_Preprocessor/manifold_mixup/data/Cifar100-C/*.npy')
+    label = np.load('/home/janghyun/Codes/Wasserstein_Preprocessor/manifold_mixup/data/Cifar100-C/labels.npy')
+
+    for path in dataset_cifar100_dist_list:
+        name = os.path.basename(path)[:-4]
+        if name == 'labels':
+            continue
+            
+        print("{}: ".format(name), end=' ')
+        dataset_cifar100_dist = np.load(path)
+        dataset_cifar100_dist = dataset_cifar100_dist.reshape(5, 100, 100, 32, 32, 3)
         
-    print("{}: ".format(name), end=' ')
-    dataset_cifar100_dist = np.load(path)
-    dataset_cifar100_dist = dataset_cifar100_dist.reshape(5, 100, 100, 32, 32, 3)
-    
-    prec1_total = 0
-    prec5_total = 0
-    for level in range(5):
-        # print("(level{})".format(level+1), end='  ')
-        
-        for batch_idx, input in enumerate(dataset_cifar100_dist[level]):
-            with torch.no_grad():
-                input = torch.tensor(input/255, dtype=torch.float32).permute(0,3,1,2).cuda()
-                target = torch.tensor(label[batch_idx*100: (batch_idx+1)*100], dtype=torch.int64).cuda()
-                
-                output = net((input - mean)/std)
-                prec1, prec5 = accuracy(output, target, topk=(1,5))
-                prec1_total += prec1.item()
-                prec5_total += prec5.item()
-               
-    print("{:.2f}".format(prec1_total/500))
+        prec1_total = 0
+        prec5_total = 0
+        for level in range(5):
+            # print("(level{})".format(level+1), end='  ')
+            
+            for batch_idx, input in enumerate(dataset_cifar100_dist[level]):
+                with torch.no_grad():
+                    input = torch.tensor(input/255, dtype=torch.float32).permute(0,3,1,2).cuda()
+                    target = torch.tensor(label[batch_idx*100: (batch_idx+1)*100], dtype=torch.int64).cuda()
+                    
+                    output = net((input - mean)/std)
+                    prec1, prec5 = accuracy(output, target, topk=(1,5))
+                    prec1_total += prec1.item()
+                    prec5_total += prec5.item()
+                   
+        print("{:.2f}".format(prec1_total/500))
 
 
