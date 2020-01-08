@@ -13,6 +13,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 import torchvision.datasets as dset
+from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
 import matplotlib as mpl
 mpl.use('Agg')
@@ -51,6 +52,7 @@ def str2bool(v):
         
 
 parser = argparse.ArgumentParser(description='Trains ResNeXt on CIFAR or ImageNet', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+# Data
 parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10', 'cifar100', 'imagenet', 'svhn', 'stl10', 'mnist', 'tiny-imagenet-200'], help='Choose between Cifar10/100 and ImageNet.')
 parser.add_argument('--data_dir', type = str, default = 'cifar10',
                         help='file where results are to be written')
@@ -61,6 +63,7 @@ parser.add_argument('--labels_per_class', type=int, default=5000, metavar='NL',
 parser.add_argument('--valid_labels_per_class', type=int, default=0, metavar='NL',
                     help='validation labels_per_class')
 
+# Model
 parser.add_argument('--arch', metavar='ARCH', default='resnext29_8_64', choices=model_names, help='model architecture: ' + ' | '.join(model_names) + ' (default: resnext29_8_64)')
 parser.add_argument('--initial_channels', type=int, default=64, choices=(16,64))
 # Optimization options
@@ -74,27 +77,36 @@ parser.add_argument('--mixup_alpha', type=float, help='alpha parameter for mixup
 parser.add_argument('--augmix', type=str2bool, default=False)
 parser.add_argument('--dropout', type=str2bool, default=False,
                     help='whether to use dropout or not in final layer')
-
+# Wasserstein
 parser.add_argument('--emd', type=str2bool, default=False)
 parser.add_argument('--proximal', type=str2bool, default=True)
 parser.add_argument('--label_inter', type=str2bool, default=False)
 parser.add_argument('--reg', type=float, default=1e-5)
 parser.add_argument('--itermax', type=int, default=10)
 
+# Graphmix
 parser.add_argument('--cutout', type=int, default=16, help='size of cut out')
 parser.add_argument('--box', type=str2bool, default=False)
 parser.add_argument('--graph', type=str2bool, default=False)
 parser.add_argument('--method', type=str, default='mix', choices=['random', 'cut', 'cut_small', 'paste','mix'])
 parser.add_argument('--block_num', type=int, default=-1)
-parser.add_argument('--beta', type=float, default=1.2)
-parser.add_argument('--gamma', type=float, default=1.0, help='[0,1]')
-parser.add_argument('--eta', type=float, default=0.2)
 parser.add_argument('--neigh_size', type=int, default=16)
 parser.add_argument('--n_labels', type=int, default=3)
 parser.add_argument('--label_cost', type=str, default='l2')
 
+parser.add_argument('--beta', type=float, default=1.2)
+parser.add_argument('--gamma', type=float, default=1.0, help='[0,1]')
+parser.add_argument('--eta', type=float, default=0.2)
+
+parser.add_argument('--sigma', type=float, default=2.0)
+parser.add_argument('--warp', type=float, default=0.0)
+parser.add_argument('--dim', type=int, default=2)
+parser.add_argument('--beta_c', type=float, default=0.0)
+
 parser.add_argument('--jsd', type=str2bool, default=False)
 parser.add_argument('--jsd_lam', type=float, default=12)
+
+# training
 parser.add_argument('--batch_size', type=int, default=100, help='Batch size.')
 parser.add_argument('--learning_rate', type=float, default=0.1, help='The Learning Rate.')
 parser.add_argument('--momentum', type=float, default=0.9, help='Momentum.')
@@ -104,8 +116,8 @@ parser.add_argument('--adv_unpre', action='store_true', default=False,
 parser.add_argument('--decay', type=float, default=0.0001, help='Weight decay (L2 penalty).')
 parser.add_argument('--schedule', type=int, nargs='+', default=[150, 225], help='Decrease learning rate at these epochs.')
 parser.add_argument('--gammas', type=float, nargs='+', default=[0.1, 0.1], help='LR is multiplied by gamma on schedule, number of gammas should be equal to schedule')
-# Checkpoints
 
+# Checkpoints
 parser.add_argument('--print_freq', default=100, type=int, metavar='N', help='print frequency (default: 200)')
 parser.add_argument('--resume', default='', type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
 parser.add_argument('--start_epoch', default=0, type=int, metavar='N', help='manual epoch number (useful on restarts)')
@@ -172,8 +184,6 @@ def experiment_name_non_mnist(dataset=args.dataset,
     exp_name += '_train_'+str(train)
     if label_inter:
         exp_name += '_label'
-    if proximal:
-        exp_name += '_prox'
     if emd:
         exp_name += '_emd'+str(itermax) + '_reg_' + str(reg)
     if box:
@@ -338,14 +348,20 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
                 loss = criterion(output, target_var)
                 optimizer_input.zero_grad()
                 loss.backward()
+                
+                if args.dim==2:
+                    unary = torch.sqrt(torch.mean(input_var.grad **2, dim=1))
+                elif args.dim==3:
+                    unary = torch.abs(input_var.grad)
 
-                unary = torch.sqrt(torch.mean(input_var.grad **2, dim=1))
                 model.train()
                 
             input_var, target_var = Variable(input).float(), Variable(target)
             output, reweighted_target = model(input_var,target_var, mixup= True, mixup_alpha = args.mixup_alpha, p=args.prob, in_batch=args.in_batch,
                     emd=args.emd, proximal=args.proximal, reg=args.reg, itermax=args.itermax, label_inter=args.label_inter, mean=mean, std=std,
-                    box=args.box, graph=args.graph, method=args.method, grad=unary, block_num=args.block_num, beta=args.beta, gamma=args.gamma, eta=args.eta, neigh_size=args.neigh_size, n_labels=args.n_labels, label_cost=args.label_cost)
+                    box=args.box, graph=args.graph, method=args.method, grad=unary, block_num=args.block_num, 
+                    beta=args.beta, gamma=args.gamma, eta=args.eta, neigh_size=args.neigh_size, n_labels=args.n_labels, label_cost=args.label_cost,
+                    sigma=args.sigma, warp=args.warp, dim=args.dim, beta_c=args.beta_c)
             loss = bce_loss(softmax(output), reweighted_target)
             if args.augmix == 1 and args.jsd == 1:
                 loss += loss_JSD
@@ -402,7 +418,7 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
     return top1.avg, top5.avg, losses.avg
 
 
-def validate(val_loader, model, log):
+def validate(val_loader, model, log, fgsm=False):
   losses = AverageMeter()
   top1 = AverageMeter()
   top5 = AverageMeter()
@@ -414,6 +430,21 @@ def validate(val_loader, model, log):
     if args.use_cuda:
       target = target.cuda()
       input = input.cuda()
+
+    if fgsm:
+        input_var = Variable(input, requires_grad=True)
+        target_var = Variable(target)
+    
+        optimizer_input = torch.optim.SGD([input_var], lr=0.1)
+        output = model(input_var)
+        loss = criterion(output, target_var)
+        optimizer_input.zero_grad()
+        loss.backward()
+
+        sign_data_grad = input_var.grad.sign()
+        input = input + 8 / 255. * sign_data_grad
+        input = torch.clamp(input, 0, 1)
+
     with torch.no_grad():
         input_var = Variable(input)
         target_var = Variable(target)
@@ -427,42 +458,72 @@ def validate(val_loader, model, log):
     losses.update(loss.item(), input.size(0))
     top1.update(prec1.item(), input.size(0))
     top5.update(prec5.item(), input.size(0))
-
-  print_log('  **Test** Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f} Error@1 {error1:.3f} Loss: {losses.avg:.3f} '.format(top1=top1, top5=top5, error1=100-top1.avg, losses=losses), log)
+  
+  if fgsm:
+    print_log('  **Attack** Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f} Error@1 {error1:.3f} Loss: {losses.avg:.3f} '.format(top1=top1, top5=top5, error1=100-top1.avg, losses=losses), log)
+  else:
+    print_log('  **Test** Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f} Error@1 {error1:.3f} Loss: {losses.avg:.3f} '.format(top1=top1, top5=top5, error1=100-top1.avg, losses=losses), log)
   return top1.avg, losses.avg
 
 
-def test_robust(net, mean, std):
+def test_robust(net, mean, std, log):
     net.eval()
+    
     # Input Corruption Test
-    dataset_cifar100_dist_list = glob('/home/janghyun/Codes/Wasserstein_Preprocessor/manifold_mixup/data/Cifar100-C/*.npy')
-    label = np.load('/home/janghyun/Codes/Wasserstein_Preprocessor/manifold_mixup/data/Cifar100-C/labels.npy')
+    if args.dataset == 'tiny-imagenet-200':
+        dataset_tinyImagenet_dist_list = glob('/home/janghyun/Codes/Wasserstein_Preprocessor/manifold_mixup/data/tiny-imagenet-200-C/*')
 
-    for path in dataset_cifar100_dist_list:
-        name = os.path.basename(path)[:-4]
-        if name == 'labels':
-            continue
+        for path in dataset_tinyImagenet_dist_list:
+            name = os.path.basename(path)
+            print("{}: ".format(name), end=' ')
+
+            for sever in range(1,6):
+                dataset = dset.ImageFolder(root=path+'/{}'.format(sever), transform=test_transform)
+                testloader = DataLoader(dataset, batch_size=100, num_workers=2, pin_memory=True)
+
+                prec1_total = 0
+                prec5_total = 0
+                for batch_idx, (input, target) in enumerate(testloader):
+                    with torch.no_grad():
+                        input = input.cuda()
+                        target = target.cuda()
+                        
+                        output = net((input - mean)/std)
+                        prec1, prec5 = accuracy(output, target, topk=(1,5))
+                        prec1_total += prec1.item()
+                        prec5_total += prec5.item()
+                
+            print("{:.2f}".format(prec1_total/len(testloader)/5))
+ 
+    else: 
+        dataset_cifar100_dist_list = glob('/home/janghyun/Codes/Wasserstein_Preprocessor/manifold_mixup/data/Cifar100-C/*.npy')
+        label = np.load('/home/janghyun/Codes/Wasserstein_Preprocessor/manifold_mixup/data/Cifar100-C/labels.npy')
+
+        for path in dataset_cifar100_dist_list:
+            name = os.path.basename(path)[:-4]
+            if name == 'labels':
+                continue
+                
+            print("{:20}:".format(name), end=' ')
+            dataset_cifar100_dist = np.load(path)
+            dataset_cifar100_dist = dataset_cifar100_dist.reshape(5, 100, 100, 32, 32, 3)
             
-        print("{:20}:".format(name), end=' ')
-        dataset_cifar100_dist = np.load(path)
-        dataset_cifar100_dist = dataset_cifar100_dist.reshape(5, 100, 100, 32, 32, 3)
-        
-        prec1_total = 0
-        prec5_total = 0
-        for level in range(5):
-            # print("(level{})".format(level+1), end='  ')
-            
-            for batch_idx, input in enumerate(dataset_cifar100_dist[level]):
-                with torch.no_grad():
-                    input = torch.tensor(input/255, dtype=torch.float32).permute(0,3,1,2).cuda()
-                    target = torch.tensor(label[batch_idx*100: (batch_idx+1)*100], dtype=torch.int64).cuda()
-                    
-                    output = net((input - mean)/std)
-                    prec1, prec5 = accuracy(output, target, topk=(1,5))
-                    prec1_total += prec1.item()
-                    prec5_total += prec5.item()
-                   
-        print("{:.2f}".format(prec1_total/500))
+            prec1_total = 0
+            prec5_total = 0
+            for level in range(5):
+                # print("(level{})".format(level+1), end='  ')
+                
+                for batch_idx, input in enumerate(dataset_cifar100_dist[level]):
+                    with torch.no_grad():
+                        input = torch.tensor(input/255, dtype=torch.float32).permute(0,3,1,2).cuda()
+                        target = torch.tensor(label[batch_idx*100: (batch_idx+1)*100], dtype=torch.int64).cuda()
+                        
+                        output = net((input - mean)/std)
+                        prec1, prec5 = accuracy(output, target, topk=(1,5))
+                        prec1_total += prec1.item()
+                        prec5_total += prec5.item()
+                       
+            print("{:.2f}".format(prec1_total/500))
 
 
 best_acc = 0
@@ -583,7 +644,7 @@ def main():
         tr_acc, tr_acc5, tr_los  = train(train_loader, net, optimizer, epoch, args, log, mean=mean, std=std)
 
         # evaluate on validation set
-        val_acc, val_los   = validate(test_loader, net, log)
+        val_acc, val_los = validate(test_loader, net, log)
         
         train_loss.append(tr_los)
         train_acc.append(tr_acc)
@@ -628,6 +689,7 @@ def main():
     print_log("\nfinal 10 epoch acc (median) : {:.2f} (+- {:.2f})".format(np.median(test_acc[-10:]), acc_var), log)
 
     test_robust(net, mean, std)
+    val_acc, val_los = validate(test_loader, net, log, fgsm=True)
 
     if not args.log_off:
         log.close()
