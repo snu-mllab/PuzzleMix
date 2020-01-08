@@ -176,12 +176,14 @@ def experiment_name_non_mnist(dataset=args.dataset,
                     add_name=args.add_name,
                     jsd=args.jsd,
                     jsd_lam=args.jsd_lam,
-                    augmix=args.augmix):
+                    augmix=args.augmix,
+                    seed=args.seed):
 
     exp_name = dataset
-    exp_name += '{}'.format(labels_per_class)
     exp_name += '_arch_'+str(arch)
     exp_name += '_train_'+str(train)
+    if mixup_alpha:
+        exp_name += '_m_alpha_'+str(mixup_alpha)
     if label_inter:
         exp_name += '_label'
     if emd:
@@ -194,12 +196,6 @@ def experiment_name_non_mnist(dataset=args.dataset,
         exp_name += '_augmix'
     if in_batch:
         exp_name += '_inbatch'
-    exp_name += '_p_' +str(p)
-    exp_name += '_m_alpha_'+str(mixup_alpha)
-    if dropout:
-        exp_name+='_do_'+'true'
-    else:
-        exp_name+='_do_'+'False'
     exp_name += '_eph_'+str(epochs)
     if delay>0:
         exp_name += '_delay'+str(delay)
@@ -213,6 +209,7 @@ def experiment_name_non_mnist(dataset=args.dataset,
     if jsd:
         exp_name += '_jsd_'+str(jsd)
         exp_name += '_jsd_lam_'+str(jsd_lam)
+    exp_name += '_seed_'+str(seed)
     if add_name!='':
         exp_name += '_add_name_'+str(add_name)
 
@@ -566,8 +563,8 @@ def main():
     if args.dataset == 'tiny-imagenet-200':
         stride = 2 
         width = 64
-        mean = 127.5/255
-        std = 127.5/255
+        mean = torch.tensor([0.5] * 3, dtype=torch.float32).view(1,3,1,1).cuda()
+        std = torch.tensor([0.5] * 3, dtype=torch.float32).view(1,3,1,1).cuda()
     else:
         stride = 1
         width = 32
@@ -615,22 +612,6 @@ def main():
     test_loss=[]
     test_acc=[]
     
-    def cost_matrix(width):
-        C = np.zeros([width**2, width**2], dtype=np.float32)
-        for m_i in range(width**2):
-            i1 = m_i // width
-            j1 = m_i % width
-            for m_j in range(width**2):
-                i2 = m_j // width
-                j2 = m_j % width
-                C[m_i,m_j]= abs(i1-i2)**2 + abs(j1-j2)**2
-    
-        C = C/(width-1)**2
-        C = torch.tensor(C)
-        return C
-
-    #C_dict = {width:cost_matrix(width), width//2:cost_matrix(width//2), width//4:cost_matrix(width//4), width//8:cost_matrix(width//8) }
-
     for epoch in range(args.start_epoch, args.epochs):
         current_learning_rate = adjust_learning_rate(optimizer, epoch, args.gammas, args.schedule)
 

@@ -19,7 +19,7 @@ from PIL import Image
 from PIL import ImageOps
 
 # ImageNet code should change this value
-IMAGE_SIZE = 32
+IMAGE_SIZE = 64
 
 
 def int_parameter(level, maxval):
@@ -114,11 +114,39 @@ def translate_y(pil_img, level):
                            Image.AFFINE, (1, 0, 0, 0, 1, level),
                            resample=Image.BILINEAR)
 
+def im2mat(I):
+  return I.reshape((I.shape[0]*I.shape[1], I.shape[2]))
+
+def mat2im(X, shape):
+  return X.reshape(shape)
+
+def minmax(I):
+  return np.clip(I, 0, 1)
+
+def color_adaptation(image1, image2):
+  img1_np = np.array(image1) / 255.
+  img2_np = np.array(image2) / 255.
+
+  X1 = im2mat(img1_np)
+  X2 = im2mat(img2_np)
+
+  idx = np.random.randint(X1.shape[0], size=(30,))
+
+  Xs = X1[idx, :]
+  Xt = X2[idx, :]
+
+  ot_emd = ot.da.EMDTransport()
+  ot_emd.fit(Xs=Xs, Xt=Xt)
+  transp_Xs_emd = ot_emd.transform(Xs=X1)
+
+  I1t = minmax(mat2im(transp_Xs_emd, img1_np.shape))
+
+  return Image.fromarray(np.uint8(I1t*255))
 
 augmentations = [
     #autocontrast,
-    #equalize, 
-    #solarize,
+    equalize, 
+    solarize,
     posterize, rotate, shear_x, shear_y,
     translate_x, translate_y
 ]

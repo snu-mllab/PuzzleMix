@@ -175,6 +175,14 @@ def load_data_subset(data_aug, batch_size,workers,dataset, data_target_dir, labe
                                                   transforms.Normalize(mean, std)])
             test_transform = transforms.Compose(
                                                 [transforms.ToTensor(), transforms.Normalize(mean, std)])
+            if augmix:
+                train_transform = transforms.Compose(
+                                                [transforms.RandomHorizontalFlip(),
+                                                 transforms.RandomCrop(64, padding=4)])
+                preprocess = transforms.Compose(
+                                                [transforms.ToTensor(),
+                                                 transforms.Normalize(mean, std)])
+                test_transform = preprocess
         else:    
             train_transform = transforms.Compose(
                                                  [transforms.RandomHorizontalFlip(),
@@ -239,6 +247,8 @@ def load_data_subset(data_aug, batch_size,workers,dataset, data_target_dir, labe
         train_data = datasets.ImageFolder(train_root, transform=train_transform)
         test_data = datasets.ImageFolder(validation_root,transform=test_transform)
         num_classes = 200
+        if augmix:
+            train_data = AugMixDataset(train_data, preprocess)
     elif dataset == 'imagenet':
         assert False, 'Do not finish imagenet code'
     else:
