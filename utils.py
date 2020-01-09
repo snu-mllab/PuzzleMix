@@ -645,7 +645,7 @@ def mixup_box(input1, input2, grad1, grad2, method='random', alpha=0.5):
 from scipy.ndimage.filters import gaussian_filter
 random_state = np.random.RandomState(None)
 
-def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alpha=0.5, beta=0., gamma=0., eta=0.2, neigh_size=2, n_labels=2, label_cost='l2', sigma=1.0, warp=0.0, dim=2, beta_c=0.0, mean=None, std=None, emd=False, reg=reg):
+def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alpha=0.5, beta=0., gamma=0., eta=0.2, neigh_size=2, n_labels=2, label_cost='l2', sigma=1.0, warp=0.0, dim=2, beta_c=0.0, mean=None, std=None, emd=False, reg=1e-5):
     batch_size, _, _, width = input1.shape
     block_size = width // block_num
     neigh_size = min(neigh_size, block_size)
