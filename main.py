@@ -330,7 +330,8 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
                 if args.jsd:
                     logits_all = model(torch.cat([input_clean, input_aug1.float(), input_aug2.float()], 0).squeeze())
                     logits_clean, logits_aug1, logits_aug2 = torch.split(logits_all, input[0].size(0))
-                
+                    output = logits_clean
+                    
                     p_clean = F.softmax(logits_clean, dim=1)
                     p_clean = torch.clamp(p_clean, 1e-7, 1)
                     p_aug1 = F.softmax(logits_aug1, dim=1)
