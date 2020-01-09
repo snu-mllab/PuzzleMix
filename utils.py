@@ -337,7 +337,7 @@ def mixup_process(out, target_reweighted, lam, p=1.0, in_batch=0, hidden=0,
     if coin == 1: 
         if box:
             lam = lam.cpu().numpy()[0]
-            out, ratio = mixup_box(out, out[indices], grad, grad[indices], method=method, alpha=lam)
+            out, ratio = mixup_box(out, out[indices], None, None, method=method, alpha=lam)
         elif graph:
             if block_num > 1:
                 lam = lam.cpu().numpy()[0]
