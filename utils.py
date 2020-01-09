@@ -780,10 +780,6 @@ def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alph
 
     return mask * input1 + (1-mask) * input2, ratio
 
-
-    return mask * input1 + (1-mask) * input2, ratio
-
-
 def create_val_folder(data_set_path):
     """
     Used for Tiny-imagenet dataset
