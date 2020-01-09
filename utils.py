@@ -767,22 +767,17 @@ def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alph
     ratio = torch.tensor(ratio/block_num**2, dtype=torch.float32, device='cuda')
     if dim ==3: 
         ratio /= 3.
-        ratio = torch.tensor(ratio/block_num**2, dtype=torch.float32, device='cuda')
 
     if n_labels > 2 and emd:
-        barycenter, _ = barycenter_conv2d(input1.clone().cuda(), input2.clone().cuda(), reg=1e-5, weights = torch.ones(input1.size(0), device='cuda') * 0.5, mean=mean, std=std)
-        return ((mask==1).float() * input1 + (mask==0.5).float() * barycenter + (mask==0).float() * input2), ratio
-
-    if n_labels > 2 and emd:
-        ret += ((mask==0).float() * input1 + (mask==1).float() * input2)
+        out = ((mask==0).float() * input1 + (mask==1).float() * input2)
         for i in range(1, n_labels):
-            barycenter, _ = barycenter_conv2d(input1.clone().cuda(), input2.clone().cuda(), reg=1e-5, weights=torch.ones(input1.size(0), device='cuda') * i / n_labels, mean=mean, std=std)
-            ret += (mask==i/n_labels).float() * barycenter
-        return ret, ratio
-
+            barycenter, _ = barycenter_conv2d(input1.clone().cuda(), input2.clone().cuda(), reg=1e-5, weights=torch.ones(input1.size(0), device='cuda') * i / (n_labels-1), mean=mean, std=std)
+            out += (mask==i/(n_labels-1)).float() * barycenter
+        return out, ratio
       
     return mask * input1 + (1-mask) * input2, ratio
 
+  
 def create_val_folder(data_set_path):
     """
     Used for Tiny-imagenet dataset
