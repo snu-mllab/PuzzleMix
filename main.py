@@ -105,6 +105,7 @@ parser.add_argument('--beta_c', type=float, default=0.0)
 
 parser.add_argument('--jsd', type=str2bool, default=False)
 parser.add_argument('--jsd_lam', type=float, default=12)
+parser.add_argument('--clean_lam', type=float, default=0.1)
 
 # training
 parser.add_argument('--batch_size', type=int, default=100, help='Batch size.')
@@ -177,6 +178,7 @@ def experiment_name_non_mnist(dataset=args.dataset,
                     add_name=args.add_name,
                     jsd=args.jsd,
                     jsd_lam=args.jsd_lam,
+                    clean_lam=args.clean_lam,
                     augmix=args.augmix,
                     seed=args.seed):
 
@@ -213,6 +215,8 @@ def experiment_name_non_mnist(dataset=args.dataset,
     if jsd:
         exp_name += '_jsd_'+str(jsd)
         exp_name += '_jsd_lam_'+str(jsd_lam)
+    if clean_lam>0:
+        exp_name += '_clean_' + str(clean_lam)
     exp_name += '_seed_'+str(seed)
     if add_name!='':
         exp_name += '_add_name_'+str(add_name)
@@ -315,9 +319,9 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
                 n = np.float32(np.random.beta(1, 1))
                 input_clean = input[0].cuda()
                 if args.emd:
-                    input_aug1, _ = barycenter_conv2d(input[0], input[1], reg=1e-5, weights=torch.ones(input[0].size(0))*m, proximal=True, mean=mean.cuda(), std=std.cuda())
+                    input_aug1, _ = barycenter_conv2d(input[0], input[1], reg=args.reg, weights=torch.ones(input[0].size(0))*m, proximal=True, mean=mean.cuda(), std=std.cuda())
                     if args.jsd:
-                        input_aug2, _ = barycenter_conv2d(input[0], input[2], reg=1e-5, weights=torch.ones(input[0].size(0))*n, proximal=True, mean=mean.cuda(), std=std.cuda())
+                        input_aug2, _ = barycenter_conv2d(input[0], input[2], reg=args.reg, weights=torch.ones(input[0].size(0))*n, proximal=True, mean=mean.cuda(), std=std.cuda())
                 else:
                     input_aug1 = ((1-m)*input[0] + m*input[1]).cuda()
                     if args.jsd:
@@ -348,7 +352,6 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
             
                 model.eval()
                 output = model(input_var)
-                model.train()
                 loss_batch = nn.CrossEntropyLoss(reduction='none')(output, target_var)
                 loss_batch_mean = torch.mean(loss_batch, dim=0)
                 optimizer.zero_grad()
@@ -358,13 +361,12 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
                     unary = torch.sqrt(torch.mean(input_var.grad **2, dim=1))
                 elif args.dim==3:
                     unary = torch.abs(input_var.grad)
-
+                
+                model.train()
             
             if args.jsd:
                 loss = F.nll_loss(p_clean.log(), target)
-                loss += args.jsd_lam * (F.kl_div(p_mixture, p_clean, reduction='batchmean') +
-                  F.kl_div(p_mixture, p_aug1, reduction='batchmean') +
-                  F.kl_div(p_mixture, p_aug2, reduction='batchmean')) / 3.
+                loss += loss_JSD
             else:
                 input_var, target_var = Variable(input).float(), Variable(target)
                 output, reweighted_target = model(input_var,target_var, mixup= True, mixup_alpha = args.mixup_alpha, p=args.prob, in_batch=args.in_batch,
@@ -374,7 +376,7 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
                     sigma=args.sigma, warp=args.warp, dim=args.dim, beta_c=args.beta_c)
                 loss = bce_loss(output, reweighted_target)
                 if unary is not None:
-                    loss += 0.1*loss_batch_mean
+                    loss += clean_lam * loss_batch_mean
 
         elif args.train== 'mixup_hidden':
             unary= None
