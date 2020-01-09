@@ -767,6 +767,19 @@ def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alph
     ratio = torch.tensor(ratio/block_num**2, dtype=torch.float32, device='cuda')
     if dim ==3: 
         ratio /= 3.
+        ratio = torch.tensor(ratio/block_num**2, dtype=torch.float32, device='cuda')
+
+    if n_labels == 3 and emd:
+        barycenter, _ = barycenter_conv2d(input1.clone().cuda(), input2.clone().cuda(), reg=1e-5, weights = torch.ones(input1.size(0), device='cuda') * 0.5, mean=mean, std=std)
+        return ((mask==1).float() * input1 + (mask==0.5).float() * barycenter + (mask==0).float() * input2), ratio
+
+    if n_labels == 4 and emd:
+        barycenter1, _ = barycenter_conv2d(input1.clone().cuda(), input2.clone().cuda(), reg=1e-5, weights = torch.ones(input1.size(0), device='cuda') * 2./3., mean=mean, std=std)
+        barycenter2, _ = barycenter_conv2d(input1.clone().cuda(), input2.clone().cuda(), reg=1e-5, weights = torch.ones(input1.size(0), device='cuda') * 1./3., mean=mean, std=std)
+        return ((mask==1).float()*input1 + (mask==2./3.).float()*barycenter1 + (mask==1./3.).float()*barycenter2 + (mask==0).float()*input2), ratio
+
+    return mask * input1 + (1-mask) * input2, ratio
+
 
     return mask * input1 + (1-mask) * input2, ratio
 
