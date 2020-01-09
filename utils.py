@@ -274,7 +274,7 @@ def barycenter_conv2d(input1, input2, reg=2e-3, weights=None, numItermax=10000, 
         alpha2 = torch.ones_like(input1).cuda().double()
         beta2 = torch.ones_like(input1).cuda().double()
     
-        for t in range(1): #p_iter=1
+        for t in range(5): #p_iter=1
             xi1 *= xi1_init
             for _ in range(1):
                 V1 = input1 / torch.max(stabThr, beta1 * K(U1 * alpha1, xi1))
