@@ -411,7 +411,8 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
         batch_time.update(time.time() - end)
         end = time.time()
 
-        mixing_avg.append((0.5 - reweighted_target[reweighted_target>0]).abs().mean().cpu().numpy())
+        if not args.jsd:
+            mixing_avg.append((0.5 - reweighted_target[reweighted_target>0]).abs().mean().cpu().numpy())
         '''
         if i % args.print_freq == 0:
             print_log('  Epoch: [{:03d}][{:03d}/{:03d}]   '
@@ -424,7 +425,7 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
                 data_time=data_time, loss=losses, top1=top1, top5=top5) + time_string(), log)
         '''
 
-    if ((epoch) % 10 == 0):
+    if ((epoch) % 10 == 0 and not args.jsd):
         print_log("average mixing weight: {:.3f}".format(np.mean(mixing_avg) + 0.5), log)
     print_log('  **Train** Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f} Error@1 {error1:.3f}'.format(top1=top1, top5=top5, error1=100-top1.avg), log)
     return top1.avg, top5.avg, losses.avg
