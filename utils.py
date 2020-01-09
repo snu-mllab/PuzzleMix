@@ -342,7 +342,7 @@ def mixup_process(out, target_reweighted, lam, p=1.0, in_batch=0, hidden=0,
             if block_num > 1:
                 lam = lam.cpu().numpy()[0]
                 out, ratio = mixup_graph(out, out[indices], grad, grad[indices], block_num=block_num, method=method,
-                             alpha=lam, beta=beta, gamma=gamma, eta=eta, neigh_size=neigh_size, n_labels=n_labels, label_cost=label_cost, sigma=sigma, warp=warp, dim=dim, beta_c=beta_c, mean=mean, std=std)
+                             alpha=lam, beta=beta, gamma=gamma, eta=eta, neigh_size=neigh_size, n_labels=n_labels, label_cost=label_cost, sigma=sigma, warp=warp, dim=dim, beta_c=beta_c, mean=mean, std=std, emd=emd)
             else: 
                 ratio = torch.ones(out.shape[0], device='cuda')
         elif emd:
@@ -644,7 +644,7 @@ def mixup_box(input1, input2, grad1, grad2, method='random', alpha=0.5):
 from scipy.ndimage.filters import gaussian_filter
 random_state = np.random.RandomState(None)
 
-def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alpha=0.5, beta=0., gamma=0., eta=0.2, neigh_size=2, n_labels=2, label_cost='l2', sigma=1.0, warp=0.0, dim=2, beta_c=0.0, mean=None, std=None):
+def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alpha=0.5, beta=0., gamma=0., eta=0.2, neigh_size=2, n_labels=2, label_cost='l2', sigma=1.0, warp=0.0, dim=2, beta_c=0.0, mean=None, std=None, emd=emd):
     batch_size, _, _, width = input1.shape
     block_size = width // block_num
     neigh_size = min(neigh_size, block_size)
@@ -769,15 +769,18 @@ def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alph
         ratio /= 3.
         ratio = torch.tensor(ratio/block_num**2, dtype=torch.float32, device='cuda')
 
-    if n_labels == 3 and emd:
+    if n_labels > 2 and emd:
         barycenter, _ = barycenter_conv2d(input1.clone().cuda(), input2.clone().cuda(), reg=1e-5, weights = torch.ones(input1.size(0), device='cuda') * 0.5, mean=mean, std=std)
         return ((mask==1).float() * input1 + (mask==0.5).float() * barycenter + (mask==0).float() * input2), ratio
 
-    if n_labels == 4 and emd:
-        barycenter1, _ = barycenter_conv2d(input1.clone().cuda(), input2.clone().cuda(), reg=1e-5, weights = torch.ones(input1.size(0), device='cuda') * 2./3., mean=mean, std=std)
-        barycenter2, _ = barycenter_conv2d(input1.clone().cuda(), input2.clone().cuda(), reg=1e-5, weights = torch.ones(input1.size(0), device='cuda') * 1./3., mean=mean, std=std)
-        return ((mask==1).float()*input1 + (mask==2./3.).float()*barycenter1 + (mask==1./3.).float()*barycenter2 + (mask==0).float()*input2), ratio
+    if n_labels > 2 and emd:
+        ret += ((mask==0).float() * input1 + (mask==1).float() * input2)
+        for i in range(1, n_labels):
+            barycenter, _ = barycenter_conv2d(input1.clone().cuda(), input2.clone().cuda(), reg=1e-5, weights=torch.ones(input1.size(0), device='cuda') * i / n_labels, mean=mean, std=std)
+            ret += (mask==i/n_labels).float() * barycenter
+        return ret, ratio
 
+      
     return mask * input1 + (1-mask) * input2, ratio
 
 def create_val_folder(data_set_path):
