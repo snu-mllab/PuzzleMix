@@ -799,6 +799,7 @@ def create_val_folder(data_set_path):
         if os.path.exists(os.path.join(path, img)):  # Check if image exists in default directory
             os.rename(os.path.join(path, img), os.path.join(newpath, img))
 
+
 def aug(image, preprocess):
     ws = np.float32(np.random.dirichlet([1] * 3))
     m = np.float32(np.random.beta(1, 1))

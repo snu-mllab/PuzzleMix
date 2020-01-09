@@ -339,7 +339,7 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
         
                 input = input_aug1.float()
             
-            if args.box or args.graph:
+            if args.graph:
                 input_var = Variable(input, requires_grad=True)
                 target_var = Variable(target)
             
