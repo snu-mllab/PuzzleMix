@@ -74,6 +74,7 @@ parser.add_argument('--train', type=str, default='vanilla', choices=['vanilla', 
 parser.add_argument('--in_batch', type=str2bool, default=False)
 parser.add_argument('-p', '--prob', type=float, default=1.0)
 parser.add_argument('--mixup_alpha', type=float, help='alpha parameter for mixup')
+parser.add_argument('--loss_alpha', type=float, default=-1)
 parser.add_argument('--augmix', type=str2bool, default=False)
 parser.add_argument('--dropout', type=str2bool, default=False,
                     help='whether to use dropout or not in final layer')
@@ -82,7 +83,7 @@ parser.add_argument('--emd', type=str2bool, default=False)
 parser.add_argument('--proximal', type=str2bool, default=True)
 parser.add_argument('--label_inter', type=str2bool, default=False)
 parser.add_argument('--reg', type=float, default=1e-5)
-parser.add_argument('--itermax', type=int, default=10)
+parser.add_argument('--itermax', type=int, default=5)
 
 # Graphmix
 parser.add_argument('--cutout', type=int, default=16, help='size of cut out')
@@ -105,7 +106,7 @@ parser.add_argument('--beta_c', type=float, default=0.0)
 
 parser.add_argument('--jsd', type=str2bool, default=False)
 parser.add_argument('--jsd_lam', type=float, default=12)
-parser.add_argument('--clean_lam', type=float, default=0.1)
+parser.add_argument('--clean_lam', type=float, default=0.0)
 
 # training
 parser.add_argument('--batch_size', type=int, default=100, help='Batch size.')
@@ -144,7 +145,6 @@ torch.cuda.manual_seed_all(args.seed)
 cudnn.benchmark = True
 
 def experiment_name_non_mnist(dataset=args.dataset,
-                    labels_per_class=args.labels_per_class,
                     arch=args.arch,
                     epochs=args.epochs,
                     delay=args.delay,
@@ -156,18 +156,15 @@ def experiment_name_non_mnist(dataset=args.dataset,
                     data_aug=args.data_aug,
                     train = args.train,
                     emd = args.emd,
-                    label_inter = args.label_inter,
-                    proximal = args.proximal,
                     box = args.box,
                     graph = args.graph,
                     method = args.method,
-                    block_num = args.block_num,
                     beta = args.beta,
                     gamma=args.gamma,
                     eta=args.eta,
+                    loss_alpha=args.loss_alpha,
                     n_labels = args.n_labels,
                     neigh_size = args.neigh_size,
-                    label_cost = args.label_cost,
                     warp = args.warp,
                     reg = args.reg,
                     itermax = args.itermax,
@@ -194,14 +191,12 @@ def experiment_name_non_mnist(dataset=args.dataset,
     exp_name += '_data_aug_'+str(data_aug)
     if mixup_alpha:
         exp_name += '_m_alpha_'+str(mixup_alpha)
-    if label_inter:
-        exp_name += '_label'
     if emd:
         exp_name += '_emd'+str(itermax) + '_reg_' + str(reg)
     if box:
         exp_name += '_box_' + method
     if graph:
-        exp_name += '_graph_' + method + '_n_labels_' + str(n_labels) + '_beta_' + str(beta) + '_gamma_' + str(gamma) + '_eta_' +str(eta)
+        exp_name += '_graph_' + method + '_n_labels_' + str(n_labels) + '_beta_' + str(beta) + '_gamma_' + str(gamma) + '_eta_' +str(eta) + '_loss_' +str(loss_alpha)
     if warp>0:
         exp_name += '_warp'
     if augmix:
@@ -303,7 +298,7 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
         target = target.long().cuda()
         data_time.update(time.time() - end)
         #import pdb; pdb.set_trace()
-        loss_batch=None
+        loss_batch_alpha=None
         unary=None
         ###  clean training####
         if (args.train == 'vanilla') or (epoch < args.delay):
@@ -361,6 +356,9 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
                 elif args.dim==3:
                     unary = torch.abs(input_var.grad)
                 
+                if args.loss_alpha >= 0:
+                    loss_batch_alpha = (loss_batch.data ** args.loss_alpha).detach().cpu().numpy()
+
                 model.train()
             
             if args.jsd:
@@ -368,13 +366,13 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
                 loss += loss_JSD
             else:
                 input_var, target_var = Variable(input).float(), Variable(target)
-                output, reweighted_target = model(input_var,target_var, mixup= True, mixup_alpha = args.mixup_alpha, p=args.prob, in_batch=args.in_batch,
+                output, reweighted_target = model(input_var, target_var, mixup= True, mixup_alpha=args.mixup_alpha, loss_batch=loss_batch_alpha, p=args.prob, in_batch=args.in_batch,
                     emd=args.emd, proximal=args.proximal, reg=args.reg, itermax=args.itermax, label_inter=args.label_inter, mean=mean, std=std,
                     box=args.box, graph=args.graph, method=args.method, grad=unary, block_num=args.block_num, 
                     beta=args.beta, gamma=args.gamma, eta=args.eta, neigh_size=args.neigh_size, n_labels=args.n_labels, label_cost=args.label_cost,
                     sigma=args.sigma, warp=args.warp, dim=args.dim, beta_c=args.beta_c)
                 loss = bce_loss(output, reweighted_target)
-                if args.graph and args.clean_lam>0:
+                if args.graph and args.clean_lam > 0:
                     loss += args.clean_lam * loss_batch_mean
 
         elif args.train== 'mixup_hidden':
@@ -429,53 +427,53 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
     return top1.avg, top5.avg, losses.avg
 
 
-def validate(val_loader, model, log, fgsm=False, eps=4, mean=None, sta=None):
-  losses = AverageMeter()
-  top1 = AverageMeter()
-  top5 = AverageMeter()
+def validate(val_loader, model, log, fgsm=False, eps=4, mean=None, std=None):
+    losses = AverageMeter()
+    top1 = AverageMeter()
+    top5 = AverageMeter()
 
-  # switch to evaluate mode
-  model.eval()
+    # switch to evaluate mode
+    model.eval()
 
-  for i, (input, target) in enumerate(val_loader):
-    if args.use_cuda:
-      target = target.cuda()
-      input = input.cuda()
+    for i, (input, target) in enumerate(val_loader):
+        if args.use_cuda:
+            target = target.cuda()
+            input = input.cuda()
 
-    if fgsm:
-        input_var = Variable(input, requires_grad=True)
-        target_var = Variable(target)
-    
-        optimizer_input = torch.optim.SGD([input_var], lr=0.1)
-        output = model(input_var)
-        loss = criterion(output, target_var)
-        optimizer_input.zero_grad()
-        loss.backward()
+        if fgsm:
+            input_var = Variable(input, requires_grad=True)
+            target_var = Variable(target)
+        
+            optimizer_input = torch.optim.SGD([input_var], lr=0.1)
+            output = model(input_var)
+            loss = criterion(output, target_var)
+            optimizer_input.zero_grad()
+            loss.backward()
 
-        sign_data_grad = input_var.grad.sign()
-        input = input * std + mean + eps / 255. * sign_data_grad
-        input = torch.clamp(input, 0, 1)
-        input = (input - mean)/std
+            sign_data_grad = input_var.grad.sign()
+            input = input * std + mean + eps / 255. * sign_data_grad
+            input = torch.clamp(input, 0, 1)
+            input = (input - mean)/std
 
-    with torch.no_grad():
-        input_var = Variable(input)
-        target_var = Variable(target)
+        with torch.no_grad():
+            input_var = Variable(input)
+            target_var = Variable(target)
 
-        # compute output
-        output = model(input_var)
-        loss = criterion(output, target_var)
+            # compute output
+            output = model(input_var)
+            loss = criterion(output, target_var)
 
-    # measure accuracy and record loss
-    prec1, prec5 = accuracy(output.data, target, topk=(1, 5))
-    losses.update(loss.item(), input.size(0))
-    top1.update(prec1.item(), input.size(0))
-    top5.update(prec5.item(), input.size(0))
+        # measure accuracy and record loss
+        prec1, prec5 = accuracy(output.data, target, topk=(1, 5))
+        losses.update(loss.item(), input.size(0))
+        top1.update(prec1.item(), input.size(0))
+        top5.update(prec5.item(), input.size(0))
   
-  if fgsm:
-    print_log('  **Attack (eps : {})** Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f} Error@1 {error1:.3f} Loss: {losses.avg:.3f} '.format(eps, top1=top1, top5=top5, error1=100-top1.avg, losses=losses), log)
-  else:
-    print_log('  **Test** Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f} Error@1 {error1:.3f} Loss: {losses.avg:.3f} '.format(top1=top1, top5=top5, error1=100-top1.avg, losses=losses), log)
-  return top1.avg, losses.avg
+    if fgsm:
+        print_log('Attack (eps : {}) Prec@1 {top1.avg:.2f}'.format(eps, top1=top1), log)
+    else:
+        print_log('  **Test** Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f} Error@1 {error1:.3f} Loss: {losses.avg:.3f} '.format(top1=top1, top5=top5, error1=100-top1.avg, losses=losses), log)
+    return top1.avg, losses.avg
 
 
 def test_robust(net, mean, std):
@@ -684,7 +682,7 @@ def main():
     
     acc_var = np.maximum(np.max(test_acc[-10:])- np.median(test_acc[-10:]), np.median(test_acc[-10:]) - np.min(test_acc[-10:]))
     print_log("\nfinal 10 epoch acc (median) : {:.2f} (+- {:.2f})".format(np.median(test_acc[-10:]), acc_var), log)
-
+    
     test_robust(net, mean, std)
     val_acc, val_los = validate(test_loader, net, log, fgsm=True, eps=4, mean=mean, std=std)
     val_acc, val_los = validate(test_loader, net, log, fgsm=True, eps=8, mean=mean, std=std)
