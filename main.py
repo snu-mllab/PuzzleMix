@@ -269,6 +269,7 @@ def mixup_criterion(y_a, y_b, lam):
 bce_loss = nn.BCEWithLogitsLoss().cuda()
 softmax = nn.Softmax(dim=1).cuda()
 criterion = nn.CrossEntropyLoss().cuda()
+criterion_batch = nn.CrossEntropyLoss(reduction='none')
 mse_loss = nn.MSELoss().cuda()
 
 
@@ -306,7 +307,7 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
                 input = input[0]
             input_var, target_var = Variable(input).cuda(), Variable(target).cuda()
             output, reweighted_target = model(input_var, target_var)
-            loss = bce_loss(output, reweighted_target)
+            loss = bce_loss(softmax(output), reweighted_target)
 
         elif args.train == 'mixup':
             if args.augmix:
@@ -348,7 +349,7 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
             
                 model.eval()
                 output = model(input_var)
-                loss_batch = nn.CrossEntropyLoss(reduction='none')(output, target_var)
+                loss_batch = criterion_batch(output, target_var)
                 loss_batch_mean = torch.mean(loss_batch, dim=0)
                 loss_batch_mean.backward(retain_graph=True)
                 
@@ -372,7 +373,7 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
                     box=args.box, graph=args.graph, method=args.method, grad=unary, block_num=args.block_num, 
                     beta=args.beta, gamma=args.gamma, eta=args.eta, neigh_size=args.neigh_size, n_labels=args.n_labels, label_cost=args.label_cost,
                     sigma=args.sigma, warp=args.warp, dim=args.dim, beta_c=args.beta_c)
-                loss = bce_loss(output, reweighted_target)
+                loss = bce_loss(softmax(output), reweighted_target)
                 if args.graph and args.clean_lam > 0:
                     loss += args.clean_lam * loss_batch_mean
 
@@ -382,7 +383,7 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
             output, reweighted_target = model(input_var,target_var, mixup_hidden= True, mixup_alpha = args.mixup_alpha, p=args.prob, in_batch=args.in_batch,
                     emd=args.emd, proximal=args.proximal, reg=args.reg, itermax=args.itermax, label_inter=args.label_inter, mean=mean, std=std,
                     box=args.box, graph=args.graph, method=args.method, grad=unary, block_num=args.block_num, beta=args.beta, gamma=args.gamma, neigh_size=args.neigh_size, n_labels=args.n_labels)
-            loss = bce_loss(output, reweighted_target)#mixup_criterion(target_a, target_b, lam)
+            loss = bce_loss(softmax(output), reweighted_target)
             
         elif args.train == 'cutout':
             cutout = Cutout(1, args.cutout)
@@ -392,7 +393,7 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
             target_var = torch.autograd.Variable(target)
             cut_input_var = torch.autograd.Variable(cut_input)
             output, reweighted_target = model(cut_input_var, target_var)
-            loss = bce_loss(output, reweighted_target)
+            loss = bce_loss(softmax(output), reweighted_target)
         
         # measure accuracy and record loss
         prec1, prec5 = accuracy(output, target, topk=(1, 5))
