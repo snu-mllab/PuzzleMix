@@ -284,6 +284,7 @@ def barycenter_conv2d(input1, input2, reg=2e-3, weights=None, numItermax=10000, 
                 KV2 = alpha2 * K(V2 * beta2 , xi1)
                 b += torch.einsum('i,ijkl->ijkl', 1-weights, torch.log(torch.max(stabThr, U2 * KV2)))
                 b = torch.exp(b)
+
                 U1 = b / torch.max(stabThr, KV1)
                 U2 = b / torch.max(stabThr, KV2)
             alpha1 = nan_recover(alpha1 * U1)
@@ -298,17 +299,6 @@ def barycenter_conv2d(input1, input2, reg=2e-3, weights=None, numItermax=10000, 
     else:
         output = b / (b.sum(2, keepdim=True).sum(3, keepdim=True) + stabThr) * total_sum
 
-#    if return_alpha:
-#        if not proximal:
-#            M = (torch.exp(-cost/reg) * cost).unsqueeze(0).unsqueeze(0)
-#            dist1 = (torch.matmul(M, V1.view([batch_size, c, width**2, 1])).squeeze(-1) * U1.view([batch_size, c, width**2])).view([batch_size, -1]).sum(-1)
-#            dist2 = (torch.matmul(M, V2.view([batch_size, c, width**2, 1])).squeeze(-1) * U2.view([batch_size, c, width**2])).view([batch_size, -1]).sum(-1)
-#        else:
-#            dist1 = (H1 * cost.unsqueeze(0).unsqueeze(0)).view([batch_size, -1]).sum(-1)
-#            dist2 = (H2 * cost.unsqueeze(0).unsqueeze(0)).view([batch_size, -1]).sum(-1)
-#    
-#        ratio = torch.sqrt(dist2) / (torch.sqrt(dist1) + torch.sqrt(dist2))
-#
     '''
     output2 = unsqueeze3(weights) * input1 + unsqueeze3(1.-weights) * input2
     mask = ((sum1 > 0).type(torch.FloatTensor) * (sum2 > 0).type(torch.FloatTensor)).to(device)
@@ -321,11 +311,7 @@ def barycenter_conv2d(input1, input2, reg=2e-3, weights=None, numItermax=10000, 
     if mean is not None:
         output = (output - mean)/std
 
-    return output, weights
-#    if return_alpha:
-#        return output, ratio
-#    else:
-#        return output, weights #.clone().detach().requires_grad_(True)
+    return output.float(), weights.float()
 
 
 
@@ -369,13 +355,7 @@ def mixup_process(out, target_reweighted, lam, p=1.0, in_batch=0, hidden=0,
                 out_pos, ratio=barycenter_conv2d(out_pos, out_pos[indices], reg=reg, weights=lam, numItermax=itermax, return_alpha=label_inter, proximal=proximal)
                 out_neg, ratio=barycenter_conv2d(out_neg, out_neg[indices], reg=reg, weights=lam, numItermax=itermax, return_alpha=label_inter, proximal=proximal)
                 out = out_pos - out_neg
-                
-            out = out.float()
-            if in_batch:
-                out_clean = out_clean.float()
-            ratio = ratio.float()
-            target_reweighted = target_reweighted.float()
-
+            
         else:
             out = out*lam + out[indices]*(1-lam)
             ratio = torch.ones(out.shape[0]).cuda() * lam

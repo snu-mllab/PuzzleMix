@@ -167,6 +167,7 @@ def experiment_name_non_mnist(dataset=args.dataset,
                     n_labels = args.n_labels,
                     neigh_size = args.neigh_size,
                     label_cost = args.label_cost,
+                    warp = args.warp,
                     reg = args.reg,
                     itermax = args.itermax,
                     in_batch = args.in_batch,
@@ -182,6 +183,13 @@ def experiment_name_non_mnist(dataset=args.dataset,
     exp_name = dataset
     exp_name += '_arch_'+str(arch)
     exp_name += '_train_'+str(train)
+    exp_name += '_eph_'+str(epochs)
+
+    exp_name +='_bs_'+str(batch_size)
+    exp_name += '_lr_'+str(lr)
+    exp_name += '_mom_'+str(momentum)
+    exp_name +='_decay_'+str(decay)
+    exp_name += '_data_aug_'+str(data_aug)
     if mixup_alpha:
         exp_name += '_m_alpha_'+str(mixup_alpha)
     if label_inter:
@@ -191,19 +199,15 @@ def experiment_name_non_mnist(dataset=args.dataset,
     if box:
         exp_name += '_box_' + method
     if graph:
-        exp_name += '_graph_' + method + '_block' + str(block_num) + '_beta_' + str(beta) + '_gamma_' + str(gamma) + '_eta_' +str(eta) + '_n_labels_' + str(n_labels) + '_neigh_' + str(neigh_size) + '_cost_' + str(label_cost)
+        exp_name += '_graph_' + method + '_n_labels_' + str(n_labels) + '_beta_' + str(beta) + '_gamma_' + str(gamma) + '_eta_' +str(eta)
+    if warp>0:
+        exp_name += '_warp'
     if augmix:
         exp_name += '_augmix'
     if in_batch:
         exp_name += '_inbatch'
-    exp_name += '_eph_'+str(epochs)
     if delay>0:
         exp_name += '_delay'+str(delay)
-    exp_name +='_bs_'+str(batch_size)
-    exp_name += '_lr_'+str(lr)
-    exp_name += '_mom_'+str(momentum)
-    exp_name +='_decay_'+str(decay)
-    exp_name += '_data_aug_'+str(data_aug)
     if job_id!=None:
         exp_name += '_job_id_'+str(job_id)
     if jsd:
@@ -415,7 +419,7 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
     return top1.avg, top5.avg, losses.avg
 
 
-def validate(val_loader, model, log, fgsm=False):
+def validate(val_loader, model, log, fgsm=False, eps=4, mean=None, sta=None):
   losses = AverageMeter()
   top1 = AverageMeter()
   top5 = AverageMeter()
@@ -439,16 +443,17 @@ def validate(val_loader, model, log, fgsm=False):
         loss.backward()
 
         sign_data_grad = input_var.grad.sign()
-        input = input + 8 / 255. * sign_data_grad
+        input = input * std + mean + eps / 255. * sign_data_grad
         input = torch.clamp(input, 0, 1)
+        input = (input - mean)/std
 
     with torch.no_grad():
         input_var = Variable(input)
         target_var = Variable(target)
 
-    # compute output
-    output = model(input_var)
-    loss = criterion(output, target_var)
+        # compute output
+        output = model(input_var)
+        loss = criterion(output, target_var)
 
     # measure accuracy and record loss
     prec1, prec5 = accuracy(output.data, target, topk=(1, 5))
@@ -457,15 +462,16 @@ def validate(val_loader, model, log, fgsm=False):
     top5.update(prec5.item(), input.size(0))
   
   if fgsm:
-    print_log('  **Attack** Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f} Error@1 {error1:.3f} Loss: {losses.avg:.3f} '.format(top1=top1, top5=top5, error1=100-top1.avg, losses=losses), log)
+    print_log('  **Attack (eps : {})** Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f} Error@1 {error1:.3f} Loss: {losses.avg:.3f} '.format(eps, top1=top1, top5=top5, error1=100-top1.avg, losses=losses), log)
   else:
     print_log('  **Test** Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f} Error@1 {error1:.3f} Loss: {losses.avg:.3f} '.format(top1=top1, top5=top5, error1=100-top1.avg, losses=losses), log)
   return top1.avg, losses.avg
 
 
-def test_robust(net, mean, std, log):
+def test_robust(net, mean, std):
     net.eval()
-    
+    test_transform = transforms.Compose([transforms.ToTensor()])
+
     # Input Corruption Test
     if args.dataset == 'tiny-imagenet-200':
         dataset_tinyImagenet_dist_list = glob('/home/janghyun/Codes/Wasserstein_Preprocessor/manifold_mixup/data/tiny-imagenet-200-C/*')
@@ -670,8 +676,9 @@ def main():
     print_log("\nfinal 10 epoch acc (median) : {:.2f} (+- {:.2f})".format(np.median(test_acc[-10:]), acc_var), log)
 
     test_robust(net, mean, std)
-    val_acc, val_los = validate(test_loader, net, log, fgsm=True)
-
+    val_acc, val_los = validate(test_loader, net, log, fgsm=True, eps=4, mean=mean, std=std)
+    val_acc, val_los = validate(test_loader, net, log, fgsm=True, eps=8, mean=mean, std=std)
+    
     if not args.log_off:
         log.close()
     

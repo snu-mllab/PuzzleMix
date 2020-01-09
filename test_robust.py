@@ -121,6 +121,36 @@ for batch_idx, (input, target) in enumerate(testloader):
 print("clean: {:.2f}".format(prec1_total/100))
 
 
+eps_list = [4, 8]
+for eps in eps_list:
+    prec1_total = 0
+    prec5_total = 0
+    for batch_idx, (input, target) in enumerate(testloader):
+        input = input.cuda()
+        target = target.cuda()
+        
+        input_var = Variable(input, requires_grad=True)
+    
+        optimizer_input = torch.optim.SGD([input_var], lr=0.1)
+        output = net((input_var - mean) /std)
+        loss = criterion(output, target)
+        optimizer_input.zero_grad()
+        loss.backward()
+
+        sign_data_grad = input_var.grad.sign()
+        input = input + eps / 255. * sign_data_grad
+        input = torch.clamp(input, 0, 1)
+        
+        with torch.no_grad():
+            output = net((input - mean)/std)
+            prec1, prec5 = accuracy(output, target, topk=(1,5))
+            prec1_total += prec1.item()
+            prec5_total += prec5.item()
+            
+    print("attack (eps {}): {:.2f}".format(eps, prec1_total/100))
+
+        
+
 # Input Corruption Test
 if args.dataset == 'tiny-imagenet-200':
     dataset_tinyImagenet_dist_list = glob('/home/janghyun/Codes/Wasserstein_Preprocessor/manifold_mixup/data/tiny-imagenet-200-C/*')
