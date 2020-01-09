@@ -267,7 +267,7 @@ def accuracy(output, target, topk=(1,)):
 def mixup_criterion(y_a, y_b, lam):
     return lambda criterion, pred: lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
 
-bce_loss = nn.BCELoss().cuda()
+bce_loss = nn.BCEWithLogitsLoss().cuda()
 softmax = nn.Softmax(dim=1).cuda()
 criterion = nn.CrossEntropyLoss().cuda()
 mse_loss = nn.MSELoss().cuda()
@@ -299,17 +299,17 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
         target = target.long().cuda()
         data_time.update(time.time() - end)
         #import pdb; pdb.set_trace()
-
+        loss_batch=None
+        unary=None
         ###  clean training####
         if (args.train == 'vanilla') or (epoch < args.delay):
             if args.augmix:
                 input = input[0]
-            input_var, target_var = Variable(input), Variable(target)
+            input_var, target_var = Variable(input).cuda(), Variable(target).cuda()
             output, reweighted_target = model(input_var, target_var)
-            loss = bce_loss(softmax(output), reweighted_target)
+            loss = bce_loss(output, reweighted_target)
 
         elif args.train == 'mixup':
-            unary= None
             if args.augmix:
                 m = np.float32(np.random.beta(1, 1))
                 n = np.float32(np.random.beta(1, 1))
@@ -328,10 +328,13 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
                     logits_clean, logits_aug1, logits_aug2 = torch.split(logits_all, input[0].size(0))
                 
                     p_clean = F.softmax(logits_clean, dim=1)
+                    p_clean = torch.clamp(p_clean, 1e-7, 1)
                     p_aug1 = F.softmax(logits_aug1, dim=1)
+                    p_aug1 = torch.clamp(p_aug1, 1e-7, 1)
                     p_aug2 = F.softmax(logits_aug2, dim=1)
+                    p_aug2 = torch.clamp(p_aug2, 1e-7, 1)
 
-                    p_mixture = torch.clamp((p_clean + p_aug1 + p_aug2) / 3., 1e-7, 1).log()
+                    p_mixture = ((p_clean + p_aug1 + p_aug2) / 3.)log()
                 
                     loss_JSD = args.jsd_lam * (F.kl_div(p_mixture, p_clean, reduction='batchmean') +
                               F.kl_div(p_mixture, p_aug1, reduction='batchmean') +
@@ -339,33 +342,39 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
         
                 input = input_aug1.float()
             
-            if args.box or args.graph:
+            if args.graph:
                 input_var = Variable(input, requires_grad=True)
                 target_var = Variable(target)
             
                 model.eval()
-                optimizer_input = torch.optim.SGD([input_var], lr=0.1)
                 output = model(input_var)
-                loss = criterion(output, target_var)
-                optimizer_input.zero_grad()
-                loss.backward()
+                model.train()
+                loss_batch = nn.CrossEntropyLoss(reduction='none')(output, target_var)
+                loss_batch_mean = torch.mean(loss_batch, dim=0)
+                optimizer.zero_grad()
+                loss_batch_mean.backward(retain_graph=True)
                 
                 if args.dim==2:
                     unary = torch.sqrt(torch.mean(input_var.grad **2, dim=1))
                 elif args.dim==3:
                     unary = torch.abs(input_var.grad)
 
-                model.train()
-                
-            input_var, target_var = Variable(input).float(), Variable(target)
-            output, reweighted_target = model(input_var,target_var, mixup= True, mixup_alpha = args.mixup_alpha, p=args.prob, in_batch=args.in_batch,
+            
+            if args.jsd:
+                loss = F.nll_loss(p_clean.log(), target)
+                loss += args.jsd_lam * (F.kl_div(p_mixture, p_clean, reduction='batchmean') +
+                  F.kl_div(p_mixture, p_aug1, reduction='batchmean') +
+                  F.kl_div(p_mixture, p_aug2, reduction='batchmean')) / 3.
+            else:
+                input_var, target_var = Variable(input).float(), Variable(target)
+                output, reweighted_target = model(input_var,target_var, mixup= True, mixup_alpha = args.mixup_alpha, p=args.prob, in_batch=args.in_batch,
                     emd=args.emd, proximal=args.proximal, reg=args.reg, itermax=args.itermax, label_inter=args.label_inter, mean=mean, std=std,
                     box=args.box, graph=args.graph, method=args.method, grad=unary, block_num=args.block_num, 
                     beta=args.beta, gamma=args.gamma, eta=args.eta, neigh_size=args.neigh_size, n_labels=args.n_labels, label_cost=args.label_cost,
                     sigma=args.sigma, warp=args.warp, dim=args.dim, beta_c=args.beta_c)
-            loss = bce_loss(softmax(output), reweighted_target)
-            if args.augmix == 1 and args.jsd == 1:
-                loss += loss_JSD
+                loss = bce_loss(output, reweighted_target)
+                if unary is not None:
+                    loss += 0.1*loss_batch_mean
 
         elif args.train== 'mixup_hidden':
             unary= None
@@ -373,7 +382,7 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
             output, reweighted_target = model(input_var,target_var, mixup_hidden= True, mixup_alpha = args.mixup_alpha, p=args.prob, in_batch=args.in_batch,
                     emd=args.emd, proximal=args.proximal, reg=args.reg, itermax=args.itermax, label_inter=args.label_inter, mean=mean, std=std,
                     box=args.box, graph=args.graph, method=args.method, grad=unary, block_num=args.block_num, beta=args.beta, gamma=args.gamma, neigh_size=args.neigh_size, n_labels=args.n_labels)
-            loss = bce_loss(softmax(output), reweighted_target)#mixup_criterion(target_a, target_b, lam)
+            loss = bce_loss(output, reweighted_target)#mixup_criterion(target_a, target_b, lam)
             
         elif args.train == 'cutout':
             cutout = Cutout(1, args.cutout)
@@ -383,7 +392,7 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
             target_var = torch.autograd.Variable(target)
             cut_input_var = torch.autograd.Variable(cut_input)
             output, reweighted_target = model(cut_input_var, target_var)
-            loss = bce_loss(softmax(output), reweighted_target)
+            loss = bce_loss(output, reweighted_target)
         
         # measure accuracy and record loss
         prec1, prec5 = accuracy(output, target, topk=(1, 5))
