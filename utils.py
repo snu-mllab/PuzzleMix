@@ -274,7 +274,7 @@ def barycenter_conv2d(input1, input2, reg=2e-3, weights=None, numItermax=10000, 
         alpha2 = torch.ones_like(input1).cuda().double()
         beta2 = torch.ones_like(input1).cuda().double()
     
-        for t in range(1): #p_iter=1
+        for t in range(5): #p_iter=1
             xi1 *= xi1_init
             for _ in range(1):
                 V1 = input1 / torch.max(stabThr, beta1 * K(U1 * alpha1, xi1))
@@ -337,12 +337,12 @@ def mixup_process(out, target_reweighted, lam, p=1.0, in_batch=0, hidden=0,
     if coin == 1: 
         if box:
             lam = lam.cpu().numpy()[0]
-            out, ratio = mixup_box(out, out[indices], grad, grad[indices], method=method, alpha=lam)
+            out, ratio = mixup_box(out, out[indices], None, None, method=method, alpha=lam)
         elif graph:
             if block_num > 1:
                 lam = lam.cpu().numpy()[0]
                 out, ratio = mixup_graph(out, out[indices], grad, grad[indices], block_num=block_num, method=method,
-                             alpha=lam, beta=beta, gamma=gamma, eta=eta, neigh_size=neigh_size, n_labels=n_labels, label_cost=label_cost, sigma=sigma, warp=warp, dim=dim, beta_c=beta_c, mean=mean, std=std)
+                             alpha=lam, beta=beta, gamma=gamma, eta=eta, neigh_size=neigh_size, n_labels=n_labels, label_cost=label_cost, sigma=sigma, warp=warp, dim=dim, beta_c=beta_c, mean=mean, std=std, emd=emd, reg=reg)
             else: 
                 ratio = torch.ones(out.shape[0], device='cuda')
         elif emd:
@@ -390,6 +390,7 @@ def get_lambda(alpha=1.0):
         lam = 1.
     return lam
 
+  
 class Cutout(object):
     """Randomly mask out one or more patches from an image.
     Args:
@@ -644,7 +645,7 @@ def mixup_box(input1, input2, grad1, grad2, method='random', alpha=0.5):
 from scipy.ndimage.filters import gaussian_filter
 random_state = np.random.RandomState(None)
 
-def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alpha=0.5, beta=0., gamma=0., eta=0.2, neigh_size=2, n_labels=2, label_cost='l2', sigma=1.0, warp=0.0, dim=2, beta_c=0.0, mean=None, std=None):
+def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alpha=0.5, beta=0., gamma=0., eta=0.2, neigh_size=2, n_labels=2, label_cost='l2', sigma=1.0, warp=0.0, dim=2, beta_c=0.0, mean=None, std=None, emd=False, reg=reg):
     batch_size, _, _, width = input1.shape
     block_size = width // block_num
     neigh_size = min(neigh_size, block_size)
@@ -768,9 +769,16 @@ def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alph
     if dim ==3: 
         ratio /= 3.
 
+    if n_labels > 2 and emd:
+        out = ((mask==0).float() * input1 + (mask==1).float() * input2)
+        for i in range(1, n_labels):
+            barycenter, _ = barycenter_conv2d(input1.clone(), input2.clone(), reg=reg, weights=torch.ones(input1.size(0), device='cuda') * i / (n_labels-1), mean=mean, std=std)
+            out += (mask==i/(n_labels-1)).float() * barycenter
+        return out, ratio
+      
     return mask * input1 + (1-mask) * input2, ratio
 
-
+  
 def create_val_folder(data_set_path):
     """
     Used for Tiny-imagenet dataset

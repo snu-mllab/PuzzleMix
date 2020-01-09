@@ -1,7 +1,5 @@
 *.par.*
-data/
-experiments/
-robust_test/
-checkpoints/
+*/*
 *.pyc
 *.swp
+!models/
