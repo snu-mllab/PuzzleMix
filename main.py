@@ -354,7 +354,6 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
                 output = model(input_var)
                 loss_batch = nn.CrossEntropyLoss(reduction='none')(output, target_var)
                 loss_batch_mean = torch.mean(loss_batch, dim=0)
-                optimizer.zero_grad()
                 loss_batch_mean.backward(retain_graph=True)
                 
                 if args.dim==2:
