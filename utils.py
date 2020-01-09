@@ -771,7 +771,7 @@ def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alph
 
     if n_labels > 2 and emd:
         out = ((mask==0).float() * input1 + (mask==1).float() * input2)
-        for i in range(1, n_labels):
+        for i in range(1, n_labels-1):
             barycenter, _ = barycenter_conv2d(input1.clone(), input2.clone(), reg=reg, weights=torch.ones(input1.size(0), device='cuda') * i / (n_labels-1), mean=mean, std=std)
             out += (mask==i/(n_labels-1)).float() * barycenter
         return out, ratio
