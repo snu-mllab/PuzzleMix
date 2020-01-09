@@ -334,7 +334,7 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
                     p_aug2 = F.softmax(logits_aug2, dim=1)
                     p_aug2 = torch.clamp(p_aug2, 1e-7, 1)
 
-                    p_mixture = ((p_clean + p_aug1 + p_aug2) / 3.)log()
+                    p_mixture = ((p_clean + p_aug1 + p_aug2) / 3.).log()
                 
                     loss_JSD = args.jsd_lam * (F.kl_div(p_mixture, p_clean, reduction='batchmean') +
                               F.kl_div(p_mixture, p_aug1, reduction='batchmean') +
