@@ -375,8 +375,8 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
                     beta=args.beta, gamma=args.gamma, eta=args.eta, neigh_size=args.neigh_size, n_labels=args.n_labels, label_cost=args.label_cost,
                     sigma=args.sigma, warp=args.warp, dim=args.dim, beta_c=args.beta_c)
                 loss = bce_loss(output, reweighted_target)
-                if unary is not None:
-                    loss += clean_lam * loss_batch_mean
+                if args.graph and args.clean_lam>0:
+                    loss += args.clean_lam * loss_batch_mean
 
         elif args.train== 'mixup_hidden':
             unary= None
