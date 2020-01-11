@@ -340,11 +340,13 @@ def mixup_process(out, target_reweighted, mixup_alpha=1.0, loss_batch=None, p=1.
     else :
         # this is only for graph
         lam = []
+        lam_anchor = get_lambda(mixup_alpha)
         for i in range(len(indices)):
-            alpha1 = 2 * loss_batch[indices][i] / (loss_batch[indices][i] + loss_batch[indices][i])
-            alpha2 = 2 * loss_batch[indices][i] / (loss_batch[indices][i] + loss_batch[indices][i])
-
-            lam.append(get_lambda(mixup_alpha * alpha1, mixup_alpha * alpha2))
+            alpha1 = 2 * loss_batch[i] / (loss_batch[i] + loss_batch[indices][i])
+            alpha2 = 2 * loss_batch[indices][i] / (loss_batch[i] + loss_batch[indices][i])
+            
+            lam.append(np.clip(lam_anchor + (alpha1-1), 0, 1))
+            # lam.append(get_lambda(mixup_alpha * alpha1, mixup_alpha * alpha2))
         lam = np.array(lam).astype('float32')
     
     if coin == 1: 
@@ -355,7 +357,7 @@ def mixup_process(out, target_reweighted, mixup_alpha=1.0, loss_batch=None, p=1.
             if block_num > 1:
                 out, ratio = mixup_graph(out, out[indices], grad, grad[indices], block_num=block_num, method=method,
                              alpha=lam, beta=beta, gamma=gamma, eta=eta, neigh_size=neigh_size, n_labels=n_labels, label_cost=label_cost, sigma=sigma, warp=warp, dim=dim, beta_c=beta_c, mean=mean, std=std,
-                             emd=emd, reg=reg, itermax=itermax)
+                             emd=emd, reg=reg, itermax=itermax, indices=indices)
             else: 
                 ratio = torch.ones(out.shape[0], device='cuda')
         elif emd:
@@ -401,7 +403,7 @@ def get_lambda(alpha=1.0, alpha2=None):
         if alpha2 is None:
             lam = np.random.beta(alpha, alpha)
         else:
-            lam = np.random.beta(alpha, alpha2)
+            lam = np.random.beta(alpha + 1e-2, alpha2 + 1e-2)
     else:
         lam = 1.
     return lam
@@ -661,7 +663,7 @@ def mixup_box(input1, input2, grad1, grad2, method='random', alpha=0.5):
 from scipy.ndimage.filters import gaussian_filter
 random_state = np.random.RandomState(None)
 
-def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alpha=0.5, beta=0., gamma=0., eta=0.2, neigh_size=2, n_labels=2, label_cost='l2', sigma=1.0, warp=0.0, dim=2, beta_c=0.0, mean=None, std=None, emd=False, reg=1e-5, itermax=5):
+def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alpha=0.5, beta=0., gamma=0., eta=0.2, neigh_size=2, n_labels=2, label_cost='l2', sigma=1.0, warp=0.0, dim=2, beta_c=0.0, mean=None, std=None, emd=False, reg=1e-5, itermax=5, indices=None):
     batch_size, _, _, width = input1.shape
     block_size = width // block_num
     neigh_size = min(neigh_size, block_size)
@@ -789,10 +791,36 @@ def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alph
         ratio /= 3.
 
     if n_labels > 2 and emd:
-        out = ((mask==0).float() * input1 + (mask==1).float() * input2)
+        if itermax > 1:
+            mask_fg=[]
+            mask_size = 16
+
+            unary1 = F.avg_pool2d(grad1, width//mask_size)
+            unary1 = unary1 / unary1.view(batch_size, -1).sum(1).view(batch_size, 1, 1)
+            unary1 = unary1.detach().cpu().numpy()
+            unary2 = np.ones_like(unary1) / mask_size ** 2
+            pw_x_i = np.zeros([mask_size-1, mask_size])
+            pw_y_i = np.zeros([mask_size, mask_size-1])
+
+            for i in range(batch_size):
+                mask_fg.append(graphcut_multi_float(unary2[i], unary1[i], pw_x_i, pw_y_i, alpha=0.6, beta=1.0, eta=0.3, n_labels=2))
+                
+            mask_fg = torch.tensor(mask_fg, dtype=torch.float32, device='cuda').unsqueeze(1)
+            mask_fg = F.interpolate(mask_fg, size=width)
+
+        out = (mask==1).float() * input1 + (mask==0).float() * input2
         for i in range(1, n_labels-1):
-            barycenter, _ = barycenter_conv2d(input1.clone(), input2.clone(), reg=reg, numItermax=itermax, weights=torch.ones(input1.size(0), device='cuda') * i / (n_labels-1), mean=mean, std=std)
-            out += (mask==i/(n_labels-1)).float() * barycenter
+            w = i/(n_labels-1)
+            if itermax > 1:
+                fg, _ = barycenter_conv2d(mask_fg * input1.clone(), mask_fg[indices] * input2.clone(), reg=reg, numItermax=itermax, weights=torch.ones(input1.size(0), device='cuda') * w, mean=mean, std=std)
+                bg = w * input1 + (1-w) * input2
+                
+                mask_bary = (fg.abs().mean(1, keepdim=True) < 0.3).float()
+                barycenter = fg * (1-mask_bary) + bg * mask_bary
+            else :
+                barycenter, _ = barycenter_conv2d(input1.clone(), input2.clone(), reg=reg, numItermax=itermax, weights=torch.ones(input1.size(0), device='cuda') * w, mean=mean, std=std)
+            
+            out += (mask==w).float() * barycenter
         return out, ratio
       
     return mask * input1 + (1-mask) * input2, ratio

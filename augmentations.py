@@ -19,7 +19,7 @@ from PIL import Image
 from PIL import ImageOps
 
 # ImageNet code should change this value
-IMAGE_SIZE = 64
+IMAGE_SIZE = 32
 
 
 def int_parameter(level, maxval):

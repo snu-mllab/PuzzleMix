@@ -83,7 +83,7 @@ parser.add_argument('--emd', type=str2bool, default=False)
 parser.add_argument('--proximal', type=str2bool, default=True)
 parser.add_argument('--label_inter', type=str2bool, default=False)
 parser.add_argument('--reg', type=float, default=1e-5)
-parser.add_argument('--itermax', type=int, default=5)
+parser.add_argument('--itermax', type=int, default=1)
 
 # Graphmix
 parser.add_argument('--cutout', type=int, default=16, help='size of cut out')
@@ -192,7 +192,7 @@ def experiment_name_non_mnist(dataset=args.dataset,
     if mixup_alpha:
         exp_name += '_m_alpha_'+str(mixup_alpha)
     if emd:
-        exp_name += '_emd'+str(itermax) + '_reg_' + str(reg)
+        exp_name += '_emd'+str(itermax) + '_reg_' + str(reg) 
     if box:
         exp_name += '_box_' + method
     if graph:
@@ -266,10 +266,10 @@ def accuracy(output, target, topk=(1,)):
 def mixup_criterion(y_a, y_b, lam):
     return lambda criterion, pred: lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
 
-bce_loss = nn.BCEWithLogitsLoss().cuda()
+bce_loss = nn.BCELoss().cuda()
 softmax = nn.Softmax(dim=1).cuda()
 criterion = nn.CrossEntropyLoss().cuda()
-criterion_batch = nn.CrossEntropyLoss(reduction='none')
+criterion_batch = nn.CrossEntropyLoss(reduction='none').cuda()
 mse_loss = nn.MSELoss().cuda()
 
 
@@ -288,20 +288,15 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
     for i, (input, target) in enumerate(train_loader):
         # import pdb; pdb.set_trace()
         # measure data loading time
-        #print (input)
-       
         #unique, counts = np.unique(target.numpy(), return_counts=True)
         #print (counts)
         #print(Counter(target.numpy()))
-        #if i==100:
-        #    break
         #import pdb; pdb.set_trace()
         target = target.long().cuda()
         data_time.update(time.time() - end)
         #import pdb; pdb.set_trace()
         loss_batch_alpha=None
         unary=None
-        ###  clean training####
         if (args.train == 'vanilla') or (epoch < args.delay):
             if args.augmix:
                 input = input[0]
@@ -315,9 +310,9 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
                 n = np.float32(np.random.beta(1, 1))
                 input_clean = input[0].cuda()
                 if args.emd:
-                    input_aug1, _ = barycenter_conv2d(input[0], input[1], reg=args.reg, weights=torch.ones(input[0].size(0))*m, proximal=True, mean=mean.cuda(), std=std.cuda())
+                    input_aug1, _ = barycenter_conv2d(input[0], input[1], reg=args.reg, numItermax=args.itermax, weights=torch.ones(input[0].size(0))*m, proximal=True, mean=mean.cuda(), std=std.cuda())
                     if args.jsd:
-                        input_aug2, _ = barycenter_conv2d(input[0], input[2], reg=args.reg, weights=torch.ones(input[0].size(0))*n, proximal=True, mean=mean.cuda(), std=std.cuda())
+                        input_aug2, _ = barycenter_conv2d(input[0], input[2], reg=args.reg, numItermax=args.itermax, weights=torch.ones(input[0].size(0))*n, proximal=True, mean=mean.cuda(), std=std.cuda())
                 else:
                     input_aug1 = ((1-m)*input[0] + m*input[1]).cuda()
                     if args.jsd:
@@ -339,7 +334,7 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
                 
                     loss_JSD = args.jsd_lam * (F.kl_div(p_mixture, p_clean, reduction='batchmean') +
                               F.kl_div(p_mixture, p_aug1, reduction='batchmean') +
-                              F.kl_div(p_mixture, p_aug2, reduction='batchmean')) / 3.
+                              F.kl_div(p_mixture, p_aug2, reduction='batchmean')) / 3. / args.num_classes
         
                 input = input_aug1.float()
             
