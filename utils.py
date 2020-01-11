@@ -860,6 +860,7 @@ def aug(image, preprocess):
     m = np.float32(np.random.beta(1, 1))
 
     mix = torch.zeros_like(preprocess(image))
+    augmentations.IMAGE_SIZE = mix.size(1)    
     for i in range(3):
         image_aug = image.copy()
         depth = np.random.randint(1, 4)

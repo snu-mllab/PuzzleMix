@@ -267,6 +267,7 @@ def mixup_criterion(y_a, y_b, lam):
     return lambda criterion, pred: lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
 
 bce_loss = nn.BCELoss().cuda()
+bce_loss_sum = nn.BCELoss(reduction='sum').cuda()
 softmax = nn.Softmax(dim=1).cuda()
 criterion = nn.CrossEntropyLoss().cuda()
 criterion_batch = nn.CrossEntropyLoss(reduction='none').cuda()
@@ -334,8 +335,8 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
                 
                     loss_JSD = args.jsd_lam * (F.kl_div(p_mixture, p_clean, reduction='batchmean') +
                               F.kl_div(p_mixture, p_aug1, reduction='batchmean') +
-                              F.kl_div(p_mixture, p_aug2, reduction='batchmean')) / 3. / args.num_classes
-        
+                              F.kl_div(p_mixture, p_aug2, reduction='batchmean')) / 3. 
+
                 input = input_aug1.float()
             
             if args.graph:
@@ -347,7 +348,7 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
                 loss_batch = criterion_batch(output, target_var)
                 loss_batch_mean = torch.mean(loss_batch, dim=0)
                 loss_batch_mean.backward(retain_graph=True)
-                
+
                 if args.dim==2:
                     unary = torch.sqrt(torch.mean(input_var.grad **2, dim=1))
                 elif args.dim==3:
@@ -360,7 +361,7 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
             
             if args.jsd:
                 loss = F.nll_loss(p_clean.log(), target)
-                loss += loss_JSD
+                loss += loss_JSD / args.num_classes
             else:
                 input_var, target_var = Variable(input).float(), Variable(target)
                 output, reweighted_target = model(input_var, target_var, mixup= True, mixup_alpha=args.mixup_alpha, loss_batch=loss_batch_alpha, p=args.prob, in_batch=args.in_batch,
@@ -370,7 +371,7 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
                     sigma=args.sigma, warp=args.warp, dim=args.dim, beta_c=args.beta_c)
                 loss = bce_loss(softmax(output), reweighted_target)
                 if args.graph and args.clean_lam > 0:
-                    loss += args.clean_lam * loss_batch_mean
+                    loss += 2 * args.clean_lam * loss_batch_mean / args.num_classes
 
         elif args.train== 'mixup_hidden':
             unary= None
