@@ -360,7 +360,7 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
                 model.train()
             
             if args.jsd:
-                loss = F.nll_loss(p_clean.log(), target)
+                loss = F.nll_loss(p_clean.log(), target) / args.num_classes
                 loss += loss_JSD / args.num_classes
             else:
                 input_var, target_var = Variable(input).float(), Variable(target)
