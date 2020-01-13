@@ -165,6 +165,7 @@ def experiment_name_non_mnist(dataset=args.dataset,
                     loss_alpha=args.loss_alpha,
                     n_labels = args.n_labels,
                     neigh_size = args.neigh_size,
+                    dim = args.dim,
                     warp = args.warp,
                     reg = args.reg,
                     itermax = args.itermax,
@@ -197,6 +198,8 @@ def experiment_name_non_mnist(dataset=args.dataset,
         exp_name += '_box_' + method
     if graph:
         exp_name += '_graph_' + method + '_n_labels_' + str(n_labels) + '_beta_' + str(beta) + '_gamma_' + str(gamma) + '_eta_' +str(eta) + '_loss_' +str(loss_alpha)
+    if dim==3:
+        exp_name += '3d'
     if warp>0:
         exp_name += '_warp'
     if augmix:
@@ -289,56 +292,56 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
     for i, (input, target) in enumerate(train_loader):
         # import pdb; pdb.set_trace()
         # measure data loading time
-        #unique, counts = np.unique(target.numpy(), return_counts=True)
-        #print (counts)
-        #print(Counter(target.numpy()))
         #import pdb; pdb.set_trace()
-        target = target.long().cuda()
+        
         data_time.update(time.time() - end)
         #import pdb; pdb.set_trace()
+        if args.augmix:
+            m = np.float32(np.random.beta(1, 1))
+            n = np.float32(np.random.beta(1, 1))
+            input_clean = input[0].cuda()
+            if args.emd:
+                input_aug1, _ = barycenter_conv2d(input[0], input[1], reg=args.reg, numItermax=args.itermax, weights=torch.ones(input[0].size(0))*m, proximal=True, mean=mean, std=std)
+                if args.jsd:
+                    input_aug2, _ = barycenter_conv2d(input[0], input[2], reg=args.reg, numItermax=args.itermax, weights=torch.ones(input[0].size(0))*n, proximal=True, mean=mean, std=std)
+            else:
+                input_aug1 = ((1-m)*input[0] + m*input[1]).cuda()
+                if args.jsd:
+                    input_aug2 = ((1-n)*input[0] + n*input[2]).cuda()
+            input = input_aug1
+        
+        input = input.cuda()
+        target = target.long().cuda()
+
         loss_batch_alpha=None
         unary=None
-        if (args.train == 'vanilla') or (epoch < args.delay):
-            if args.augmix:
-                input = input[0]
-            input_var, target_var = Variable(input).cuda(), Variable(target).cuda()
+
+        if args.augmix and args.jsd:
+            logits_all, reweighted_target = model(torch.cat([input_clean, input_aug1, input_aug2], 0).squeeze(), target)
+            logits_clean, logits_aug1, logits_aug2 = torch.split(logits_all, input.size(0))
+            output = logits_clean
+            
+            p_clean = F.softmax(logits_clean, dim=1)
+            p_clean = torch.clamp(p_clean, 1e-7, 1)
+            p_aug1 = F.softmax(logits_aug1, dim=1)
+            p_aug1 = torch.clamp(p_aug1, 1e-7, 1)
+            p_aug2 = F.softmax(logits_aug2, dim=1)
+            p_aug2 = torch.clamp(p_aug2, 1e-7, 1)
+
+            p_mixture = ((p_clean + p_aug1 + p_aug2) / 3.).log()
+        
+            loss_JSD = args.jsd_lam * (F.kl_div(p_mixture, p_clean, reduction='batchmean') +
+                      F.kl_div(p_mixture, p_aug1, reduction='batchmean') +
+                      F.kl_div(p_mixture, p_aug2, reduction='batchmean')) / 3. 
+            loss = bce_loss(softmax(output), reweighted_target)
+            loss += loss_JSD / args.num_classes
+            
+        elif (args.train == 'vanilla') or (epoch < args.delay):
+            input_var, target_var = Variable(input), Variable(target)
             output, reweighted_target = model(input_var, target_var)
             loss = bce_loss(softmax(output), reweighted_target)
 
         elif args.train == 'mixup':
-            if args.augmix:
-                m = np.float32(np.random.beta(1, 1))
-                n = np.float32(np.random.beta(1, 1))
-                input_clean = input[0].cuda()
-                if args.emd:
-                    input_aug1, _ = barycenter_conv2d(input[0], input[1], reg=args.reg, numItermax=args.itermax, weights=torch.ones(input[0].size(0))*m, proximal=True, mean=mean.cuda(), std=std.cuda())
-                    if args.jsd:
-                        input_aug2, _ = barycenter_conv2d(input[0], input[2], reg=args.reg, numItermax=args.itermax, weights=torch.ones(input[0].size(0))*n, proximal=True, mean=mean.cuda(), std=std.cuda())
-                else:
-                    input_aug1 = ((1-m)*input[0] + m*input[1]).cuda()
-                    if args.jsd:
-                        input_aug2 = ((1-n)*input[0] + n*input[2]).cuda()
-                
-                if args.jsd:
-                    logits_all = model(torch.cat([input_clean, input_aug1.float(), input_aug2.float()], 0).squeeze())
-                    logits_clean, logits_aug1, logits_aug2 = torch.split(logits_all, input[0].size(0))
-                    output = logits_clean
-                    
-                    p_clean = F.softmax(logits_clean, dim=1)
-                    p_clean = torch.clamp(p_clean, 1e-7, 1)
-                    p_aug1 = F.softmax(logits_aug1, dim=1)
-                    p_aug1 = torch.clamp(p_aug1, 1e-7, 1)
-                    p_aug2 = F.softmax(logits_aug2, dim=1)
-                    p_aug2 = torch.clamp(p_aug2, 1e-7, 1)
-
-                    p_mixture = ((p_clean + p_aug1 + p_aug2) / 3.).log()
-                
-                    loss_JSD = args.jsd_lam * (F.kl_div(p_mixture, p_clean, reduction='batchmean') +
-                              F.kl_div(p_mixture, p_aug1, reduction='batchmean') +
-                              F.kl_div(p_mixture, p_aug2, reduction='batchmean')) / 3. 
-
-                input = input_aug1.float()
-            
             if args.graph:
                 input_var = Variable(input, requires_grad=True)
                 target_var = Variable(target)
@@ -359,22 +362,18 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
 
                 model.train()
             
-            if args.jsd:
-                loss = F.nll_loss(p_clean.log(), target)
-                loss += loss_JSD / args.num_classes
-            else:
-                input_var, target_var = Variable(input).float(), Variable(target)
-                output, reweighted_target = model(input_var, target_var, mixup= True, mixup_alpha=args.mixup_alpha, loss_batch=loss_batch_alpha, p=args.prob, in_batch=args.in_batch,
-                    emd=args.emd, proximal=args.proximal, reg=args.reg, itermax=args.itermax, label_inter=args.label_inter, mean=mean, std=std,
-                    box=args.box, graph=args.graph, method=args.method, grad=unary, block_num=args.block_num, 
-                    beta=args.beta, gamma=args.gamma, eta=args.eta, neigh_size=args.neigh_size, n_labels=args.n_labels, label_cost=args.label_cost,
-                    sigma=args.sigma, warp=args.warp, dim=args.dim, beta_c=args.beta_c)
-                loss = bce_loss(softmax(output), reweighted_target)
-                if args.graph and args.clean_lam > 0:
-                    loss += 2 * args.clean_lam * loss_batch_mean / args.num_classes
+            input_var, target_var = Variable(input), Variable(target)
+            output, reweighted_target = model(input_var, target_var, mixup= True, mixup_alpha=args.mixup_alpha, loss_batch=loss_batch_alpha, p=args.prob, in_batch=args.in_batch,
+                emd=args.emd, proximal=args.proximal, reg=args.reg, itermax=args.itermax, label_inter=args.label_inter, mean=mean, std=std,
+                box=args.box, graph=args.graph, method=args.method, grad=unary, block_num=args.block_num, 
+                beta=args.beta, gamma=args.gamma, eta=args.eta, neigh_size=args.neigh_size, n_labels=args.n_labels, label_cost=args.label_cost,
+                sigma=args.sigma, warp=args.warp, dim=args.dim, beta_c=args.beta_c)
+
+            loss = bce_loss(softmax(output), reweighted_target)
+            if args.graph and args.clean_lam > 0:
+                loss += 2 * args.clean_lam * loss_batch_mean / args.num_classes
 
         elif args.train== 'mixup_hidden':
-            unary= None
             input_var, target_var = Variable(input), Variable(target)
             output, reweighted_target = model(input_var,target_var, mixup_hidden= True, mixup_alpha = args.mixup_alpha, p=args.prob, in_batch=args.in_batch,
                     emd=args.emd, proximal=args.proximal, reg=args.reg, itermax=args.itermax, label_inter=args.label_inter, mean=mean, std=std,
@@ -390,6 +389,9 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
             cut_input_var = torch.autograd.Variable(cut_input)
             output, reweighted_target = model(cut_input_var, target_var)
             loss = bce_loss(softmax(output), reweighted_target)
+
+        else:
+            raise AssertionError('wrong train type!!')
         
         # measure accuracy and record loss
         prec1, prec5 = accuracy(output, target, topk=(1, 5))
@@ -401,11 +403,14 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        
+        if args.dataset == 'imagenet' and i%100==0:
+            print(i, time.time()-end)
 
         # measure elapsed time
         batch_time.update(time.time() - end)
         end = time.time()
-
+        
         if not args.jsd:
             mixing_avg.append((0.5 - reweighted_target[reweighted_target>0]).abs().mean().cpu().numpy())
         '''
@@ -486,14 +491,15 @@ def test_robust(net, mean, std):
         for path in dataset_tinyImagenet_dist_list:
             name = os.path.basename(path)
             print("{}: ".format(name), end=' ')
+            
+            prec1_total = 0
+            prec5_total = 0
 
             for sever in range(1,6):
                 dataset = dset.ImageFolder(root=path+'/{}'.format(sever), transform=test_transform)
                 testloader = DataLoader(dataset, batch_size=100, num_workers=2, pin_memory=True)
 
-                prec1_total = 0
-                prec5_total = 0
-                for batch_idx, (input, target) in enumerate(testloader):
+            for batch_idx, (input, target) in enumerate(testloader):
                     with torch.no_grad():
                         input = input.cuda()
                         target = target.cuda()
@@ -575,12 +581,18 @@ def main():
 
     if args.dataset == 'tiny-imagenet-200':
         stride = 2 
-        width = 64
         mean = torch.tensor([0.5] * 3, dtype=torch.float32).view(1,3,1,1).cuda()
         std = torch.tensor([0.5] * 3, dtype=torch.float32).view(1,3,1,1).cuda()
+    elif args.dataset == 'imagenet':
+        stride = None
+        mean = torch.tensor([0.485, 0.456, 0.406], dtype=torch.float32).view(1,3,1,1).cuda()
+        std = torch.tensor([0.229, 0.224, 0.225], dtype=torch.float32).view(1,3,1,1).cuda()
+    elif args.dataset == 'cifar10':
+        stride = 1
+        mean = torch.tensor([x / 255 for x in [125.3, 123.0, 113.9]], dtype=torch.float32).view(1,3,1,1).cuda()
+        std = torch.tensor([x / 255 for x in [63.0, 62.1, 66.7]], dtype=torch.float32).view(1,3,1,1).cuda()
     else:
         stride = 1
-        width = 32
         mean = torch.tensor([x / 255 for x in [129.3, 124.1, 112.4]], dtype=torch.float32).view(1,3,1,1).cuda()
         std = torch.tensor([x / 255 for x in [68.2, 65.4, 70.4]], dtype=torch.float32).view(1,3,1,1).cuda()
 

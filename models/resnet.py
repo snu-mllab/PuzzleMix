@@ -190,7 +190,7 @@ def resnet34(num_classes=10, dropout = False, per_img_std = False):
     return model
 
 
-def resnet50(num_classes=10, dropout = False, per_img_std = False):
+def resnet50(num_classes=10, dropout = False, per_img_std = False, stride=None):
     """Constructs a ResNet-50 model.
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet

@@ -142,6 +142,9 @@ def load_data_subset(data_aug, batch_size,workers,dataset, data_target_dir, labe
     elif dataset == 'tiny-imagenet-200':
         mean = [x / 255 for x in [127.5, 127.5, 127.5]]
         std = [x / 255 for x in [127.5, 127.5, 127.5]]
+    elif dataset == 'imagenet':
+        mean = [0.485, 0.456, 0.406]
+        std = [0.229, 0.224, 0.225]
     elif dataset == 'mnist':
         pass 
     else:
@@ -183,6 +186,24 @@ def load_data_subset(data_aug, batch_size,workers,dataset, data_target_dir, labe
                                                 [transforms.ToTensor(),
                                                  transforms.Normalize(mean, std)])
                 test_transform = preprocess
+        elif dataset == 'imagenet':
+            train_transform = transforms.Compose(
+                                                 [transforms.RandomHorizontalFlip(),
+                                                  transforms.RandomResizedCrop(224),
+                                                  transforms.ToTensor(),
+                                                  transforms.Normalize(mean, std)])
+            test_transform = transforms.Compose(
+                                                [transforms.Resize(256),
+                                                transforms.CenterCrop(224),
+                                                transforms.ToTensor(), transforms.Normalize(mean, std)])
+            if augmix:
+                train_transform = transforms.Compose(
+                                                 [transforms.RandomResizedCrop(224),
+                                                transforms.RandomHorizontalFlip()])
+                preprocess = transforms.Compose(
+                                                [transforms.ToTensor(),
+                                                transforms.Normalize(mean, std)])
+                           
         else:    
             train_transform = transforms.Compose(
                                                  [transforms.RandomHorizontalFlip(),
@@ -218,6 +239,7 @@ def load_data_subset(data_aug, batch_size,workers,dataset, data_target_dir, labe
                                                  transforms.Normalize(mean, std)])
             test_transform = transforms.Compose(
                                                 [transforms.ToTensor(), transforms.Normalize(mean, std)])
+
     if dataset == 'cifar10':
         train_data = datasets.CIFAR10(data_target_dir, train=True, transform=train_transform, download=True)
         test_data = datasets.CIFAR10(data_target_dir, train=False, transform=test_transform, download=True)
@@ -250,7 +272,13 @@ def load_data_subset(data_aug, batch_size,workers,dataset, data_target_dir, labe
         if augmix:
             train_data = AugMixDataset(train_data, preprocess)
     elif dataset == 'imagenet':
-        assert False, 'Do not finish imagenet code'
+        train_root = os.path.join(data_target_dir, 'train')  # this is path to training images folder
+        validation_root = os.path.join(data_target_dir, 'val')  # this is path to validation images folder
+        train_data = datasets.ImageFolder(train_root, transform=train_transform)
+        test_data = datasets.ImageFolder(validation_root,transform=test_transform)
+        num_classes = 1000
+        if augmix:
+            train_data = AugMixDataset(train_data, preprocess)
     else:
         assert False, 'Do not support dataset : {}'.format(dataset)
 
@@ -289,12 +317,12 @@ def load_data_subset(data_aug, batch_size,workers,dataset, data_target_dir, labe
         train_sampler, valid_sampler, unlabelled_sampler = get_sampler(train_data.labels, labels_per_class, valid_labels_per_class)
     elif dataset == 'mnist':
         train_sampler, valid_sampler, unlabelled_sampler = get_sampler(train_data.train_labels.numpy(), labels_per_class, valid_labels_per_class)
-    elif dataset == 'tiny-imagenet-200' or augmix:
+    elif dataset == 'tiny-imagenet-200' or augmix or dataset =='imagenet':
         pass
     else:
         train_sampler, valid_sampler, unlabelled_sampler = get_sampler(train_data.targets, labels_per_class, valid_labels_per_class)
 
-    if dataset == 'tiny-imagenet-200' or augmix:
+    if dataset == 'tiny-imagenet-200' or augmix or dataset == 'imagenet':
         labelled = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=workers, pin_memory=True)
         validation = None
         unlabelled = None

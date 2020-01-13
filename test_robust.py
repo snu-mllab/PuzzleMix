@@ -159,12 +159,13 @@ if args.dataset == 'tiny-imagenet-200':
         name = os.path.basename(path)
         print("{}: ".format(name), end=' ')
 
+        prec1_total = 0
+        prec5_total = 0
+
         for sever in range(1,6):
             dataset = dset.ImageFolder(root=path+'/{}'.format(sever), transform=test_transform)
             testloader = DataLoader(dataset, batch_size=100, num_workers=2, pin_memory=True)
 
-            prec1_total = 0
-            prec5_total = 0
             for batch_idx, (input, target) in enumerate(testloader):
                 with torch.no_grad():
                     input = input.cuda()

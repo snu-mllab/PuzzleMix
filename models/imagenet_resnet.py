@@ -1,6 +1,9 @@
 import torch.nn as nn
+import torch.nn.functional as f
 import math
 import torch.utils.model_zoo as model_zoo
+from utils import to_one_hot, mixup_process, get_lambda
+
 
 def conv3x3(in_planes, out_planes, stride=1):
     "3x3 convolution with padding"
@@ -83,6 +86,7 @@ class ResNet(nn.Module):
 
     def __init__(self, block, layers, num_classes=1000):
         self.inplanes = 64
+        self.num_classes = num_classes
         super(ResNet, self).__init__()
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
                                bias=False)
@@ -121,7 +125,22 @@ class ResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def forward(self, x):
+    def forward(self, x, target= None, mixup=False, mixup_hidden=False, mixup_alpha=None, loss_batch=None, in_batch=False, p=1.0,
+                emd=False, proximal=True, reg=1e-5, itermax=10, label_inter=False, mean=None, std=None,
+                box=False, graph=False, method='random', grad=None, block_num=32, beta=0.0, gamma=0., eta=0.2, neigh_size=2, n_labels=2, label_cost='l2',sigma=1.0, warp=0.0, dim=2, beta_c=0.0):
+        
+        if mixup_hidden:
+            layer_mix = random.randint(0,2)
+        elif mixup:
+            layer_mix = 0
+        else:
+            layer_mix = None   
+        
+        # out = x
+        
+        if target is not None :
+            target_reweighted = to_one_hot(target,self.num_classes)
+        
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
@@ -136,7 +155,10 @@ class ResNet(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.fc(x)
 
-        return x
+        if target is not None:
+            return x, target_reweighted
+        else: 
+            return x
 
 
 def resnet18(num_classes=1000):
@@ -159,7 +181,7 @@ def resnet34(num_classes=1000):
     return model
 
 
-def resnet50(num_classes=1000):
+def resnet50_in(num_classes=1000, dropout = False, per_img_std = False, stride=None):
     """Constructs a ResNet-50 model.
 
     Args:
