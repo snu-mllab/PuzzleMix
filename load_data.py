@@ -244,6 +244,8 @@ def load_data_subset(data_aug, batch_size,workers,dataset, data_target_dir, labe
         train_data = datasets.CIFAR10(data_target_dir, train=True, transform=train_transform, download=True)
         test_data = datasets.CIFAR10(data_target_dir, train=False, transform=test_transform, download=True)
         num_classes = 10
+        if augmix:
+            train_data = AugMixDataset(train_data, preprocess)
     elif dataset == 'cifar100':
         train_data = datasets.CIFAR100(data_target_dir, train=True, transform=train_transform, download=True)
         test_data = datasets.CIFAR100(data_target_dir, train=False, transform=test_transform, download=True)

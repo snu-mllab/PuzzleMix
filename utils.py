@@ -118,13 +118,11 @@ def time_file_str():
   string = '{}'.format(time.strftime( ISOTIMEFORMAT, time.gmtime(time.time()) ))
   return string + '-{}'.format(random.randint(1, 10000))
 
-def to_one_hot(inp,num_classes):
-    y_onehot = torch.FloatTensor(inp.size(0), num_classes)
-    y_onehot.zero_()
-
-    y_onehot.scatter_(1, inp.unsqueeze(1).data.cpu(), 1)
+def to_one_hot(inp,num_classes,device='cuda'):
+    y_onehot = torch.zeros((inp.size(0), num_classes), dtype=torch.float32, device=device)
+    y_onehot.scatter_(1, inp.unsqueeze(1), 1)
     
-    return Variable(y_onehot.cuda(),requires_grad=False)
+    return y_onehot
 
 
 def unsqueeze3(tensor):
@@ -140,8 +138,11 @@ def cost_matrix(width):
             j2 = m_j % width
             C[m_i,m_j]= abs(i1-i2)**2 + abs(j1-j2)**2
     C = C/(width-1)**2
-    C = torch.tensor(C)
+    C = torch.tensor(C).cuda()
     return C
+
+
+cost_matrix_dict = {'2':cost_matrix(2).unsqueeze(0), '4':cost_matrix(4).unsqueeze(0), '8':cost_matrix(8).unsqueeze(0), '16':cost_matrix(16).unsqueeze(0)}
       
 def K_prox(x, H, transpose=False):
     c = x.shape[1]
@@ -193,9 +194,9 @@ def barycenter_conv2d(input1, input2, reg=2e-3, weights=None, numItermax=5, prox
     input2 = input2.to(device).double()
 
     if weights is None:
-        weights = torch.ones(input1.shape[0]).to(device) / 2
+        weights = torch.ones(input1.shape[0], device=device) / 2
     elif weights.shape[0] == 1:
-        weights = torch.ones(input1.shape[0]).to(device) * weights
+        weights = torch.ones(input1.shape[0], device=device) * weights[0]
     else:
         pass
     
@@ -204,7 +205,7 @@ def barycenter_conv2d(input1, input2, reg=2e-3, weights=None, numItermax=5, prox
         std = std.to(device).double()
 
     weights = weights.to(device).double()
-    stabThr = torch.tensor(stabThr).to(device).double()
+    stabThr = torch.tensor(stabThr, device=device).double()
     if mean is not None:
         input1 = std * input1 + mean + stabThr
         input2 = std * input2 + mean + stabThr
@@ -235,9 +236,9 @@ def barycenter_conv2d(input1, input2, reg=2e-3, weights=None, numItermax=5, prox
     width = input1.shape[2]
     
     if not proximal:
-        t = torch.linspace(0, 1, input1.shape[2])
+        t = torch.linspace(0, 1, input1.shape[2]).to(device)
         [Y, X] = torch.meshgrid(t, t)
-        xi1 = torch.exp(-(X - Y)**2 / reg).to(device).double()
+        xi1 = torch.exp(-(X - Y)**2 / reg).double()
 
         while (err > stopThr and cpt < numItermax):
             if cpt == 0:
@@ -317,7 +318,8 @@ def barycenter_conv2d(input1, input2, reg=2e-3, weights=None, numItermax=5, prox
 
 def mixup_process(out, target_reweighted, mixup_alpha=1.0, loss_batch=None, p=1.0, in_batch=0, hidden=0,
                   emd=0, proximal=0, reg=1e-5, itermax=1, label_inter=0, mean=None, std=None,
-                  box=0, graph=0, method='random', grad=None, block_num=-1, beta=0.0, gamma=0., eta=0.2, neigh_size=2, n_labels=2, label_cost='l2', sigma=1.0, warp=0.0, dim=2, beta_c=0.0):
+                  box=0, graph=0, method='random', grad=None, block_num=-1, beta=0.0, gamma=0., eta=0.2, neigh_size=2, n_labels=2, label_cost='l2', sigma=1.0, warp=0.0, dim=2, beta_c=0.0,
+                  transport=False, t_eps=10.0, t_type='full'):
     if block_num == -1:
         block_num = 2**np.random.randint(1, 5)
     if in_batch:
@@ -336,7 +338,7 @@ def mixup_process(out, target_reweighted, mixup_alpha=1.0, loss_batch=None, p=1.
 
     if loss_batch is None:
         lam = get_lambda(mixup_alpha)
-        lam = torch.from_numpy(np.array([lam]).astype('float32')).cuda()
+        lam = np.array([lam]).astype('float32')
     else :
         # this is only for graph
         lam = []
@@ -351,13 +353,12 @@ def mixup_process(out, target_reweighted, mixup_alpha=1.0, loss_batch=None, p=1.
     
     if coin == 1: 
         if box:
-            lam = lam.cpu().numpy()[0]
-            out, ratio = mixup_box(out, out[indices], None, None, method=method, alpha=lam)
+            out, ratio = mixup_box(out, out[indices], None, None, method=method, alpha=lam[0])
         elif graph:
             if block_num > 1:
-                out, ratio = mixup_graph(out, out[indices], grad, grad[indices], block_num=block_num, method=method,
-                             alpha=lam, beta=beta, gamma=gamma, eta=eta, neigh_size=neigh_size, n_labels=n_labels, label_cost=label_cost, sigma=sigma, warp=warp, dim=dim, beta_c=beta_c, mean=mean, std=std,
-                             emd=emd, reg=reg, itermax=itermax, indices=indices)
+                out, ratio = mixup_graph(out, grad, indices, block_num=block_num, method=method,
+                             alpha=lam, beta=beta, gamma=gamma, eta=eta, neigh_size=neigh_size, n_labels=n_labels, label_cost=label_cost, sigma=sigma, warp=warp, dim=dim, beta_c=beta_c,
+                             mean=mean, std=std, emd=emd, reg=reg, itermax=itermax, transport=transport, t_eps=t_eps, t_type=t_type)
             else: 
                 ratio = torch.ones(out.shape[0], device='cuda')
         elif emd:
@@ -372,8 +373,8 @@ def mixup_process(out, target_reweighted, mixup_alpha=1.0, loss_batch=None, p=1.
                 out = out_pos - out_neg
             
         else:
-            out = out*lam + out[indices]*(1-lam)
-            ratio = torch.ones(out.shape[0]).cuda() * lam
+            out = out*lam[0] + out[indices]*(1-lam[0])
+            ratio = torch.ones(out.shape[0], device='cuda') * lam[0]
 
         target_shuffled_onehot = target_reweighted[indices]
         target_reweighted = target_reweighted * ratio.unsqueeze(-1) + target_shuffled_onehot * (1 - ratio.unsqueeze(-1))
@@ -663,13 +664,14 @@ def mixup_box(input1, input2, grad1, grad2, method='random', alpha=0.5):
 from scipy.ndimage.filters import gaussian_filter
 random_state = np.random.RandomState(None)
 
-def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alpha=0.5, beta=0., gamma=0., eta=0.2, neigh_size=2, n_labels=2, label_cost='l2', sigma=1.0, warp=0.0, dim=2, beta_c=0.0, mean=None, std=None, emd=False, reg=1e-5, itermax=5, indices=None):
+def mixup_graph(input1, grad1, indices, block_num=2, method='random', alpha=0.5, beta=0., gamma=0., eta=0.2, neigh_size=2, n_labels=2, label_cost='l2', sigma=1.0, warp=0.0, dim=2, beta_c=0.0, mean=None, std=None, emd=False, reg=1e-5, itermax=5, transport=False, t_eps=10.0, t_type='full'):
+    input2 = input1[indices]
     batch_size, _, _, width = input1.shape
     block_size = width // block_num
     neigh_size = min(neigh_size, block_size)
 
     if alpha.shape[0] == 1:
-        alpha = np.ones([batch_size]) * alpha.cpu().numpy()[0]
+        alpha = np.ones([batch_size]) * alpha[0]
 
     ratio = np.zeros([batch_size])
     beta = beta/block_num/16
@@ -677,17 +679,13 @@ def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alph
         beta_c = beta_c/block_num/16/3
         beta /= 3
     
-    unary1 = F.avg_pool2d(grad1, block_size)
-    unary2 = F.avg_pool2d(grad2, block_size)
-    
+    grad1_pool = F.avg_pool2d(grad1, block_size)
     if dim==2:
         mask = np.zeros([batch_size, 1, width, width])
-        unary1 = unary1 / unary1.view(batch_size, -1).sum(1).view(batch_size, 1, 1)
-        unary2 = unary2 / unary2.view(batch_size, -1).sum(1).view(batch_size, 1, 1)    
+        unary1_torch = grad1_pool / grad1_pool.view(batch_size, -1).sum(1).view(batch_size, 1, 1)
     elif dim==3:
         mask = np.zeros([batch_size, 3, width, width])
-        unary1 = unary1 / unary1.view(batch_size, -1).sum(1).view(batch_size, 1, 1, 1)
-        unary2 = unary2 / unary2.view(batch_size, -1).sum(1).view(batch_size, 1, 1, 1)    
+        unary1_torch = grad1_pool / grad1_pool.view(batch_size, -1).sum(1).view(batch_size, 1, 1, 1)
     
     if warp > 0:
         row = torch.linspace(-1, 1, block_num).cuda()
@@ -713,17 +711,13 @@ def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alph
     elif method == 'mix':
         mask=[]
         if warp>0:
-            unary1 = F.grid_sample(unary1.unsqueeze(1), grid+grid_offset, padding_mode="reflection").squeeze(1)
-            unary2 = F.grid_sample(unary2.unsqueeze(1), grid+grid_offset, padding_mode="reflection").squeeze(1)
-        unary1 = unary1.detach().cpu().numpy()
-        unary2 = unary2.detach().cpu().numpy()
-
-        ### Add unnormalize tern !
+            unary1_torch = F.grid_sample(unary1_torch.unsqueeze(1), grid+grid_offset, padding_mode="reflection").squeeze(1)
+        unary2_torch = unary1_torch[indices]
+        
         input1_pool = F.avg_pool2d(input1 * std + mean, neigh_size)
-        input2_pool = F.avg_pool2d(input2 * std + mean, neigh_size)
         if warp>0:
             input1_pool = F.grid_sample(input1_pool, grid+grid_offset, padding_mode="reflection")
-            input2_pool = F.grid_sample(input2_pool, grid+grid_offset, padding_mode="reflection")
+        input2_pool = input1_pool[indices]
 
         if dim==2:
             pw_x = torch.zeros([batch_size, 2, 2, block_num-1, block_num], device='cuda')
@@ -734,45 +728,55 @@ def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alph
 
         k = block_size//neigh_size
 
-        pw_x[:, 0, 0], pw_y[:, 0, 0] = neigh_penalty(input1_pool, input1_pool, k, dim=dim)
-        pw_x[:, 0, 1], pw_y[:, 0, 1] = neigh_penalty(input1_pool, input2_pool, k, dim=dim)
-        pw_x[:, 1, 0], pw_y[:, 1, 0] = neigh_penalty(input2_pool, input1_pool, k, dim=dim)
-        pw_x[:, 1, 1], pw_y[:, 1, 1] = neigh_penalty(input2_pool, input2_pool, k, dim=dim)
+        # pw_x[:, 0, 0], pw_y[:, 0, 0] = neigh_penalty(input1_pool, input1_pool, k, dim=dim)
+        # pw_x[:, 0, 1], pw_y[:, 0, 1] = neigh_penalty(input1_pool, input2_pool, k, dim=dim)
+        # pw_x[:, 1, 0], pw_y[:, 1, 0] = neigh_penalty(input2_pool, input1_pool, k, dim=dim)
+        # pw_x[:, 1, 1], pw_y[:, 1, 1] = neigh_penalty(input2_pool, input2_pool, k, dim=dim)
+
+        pw_x[:, 0, 0], pw_y[:, 0, 0] = neigh_penalty(input2_pool, input2_pool, k, dim=dim)
+        pw_x[:, 0, 1], pw_y[:, 0, 1] = neigh_penalty(input2_pool, input1_pool, k, dim=dim)
+        pw_x[:, 1, 0], pw_y[:, 1, 0] = neigh_penalty(input1_pool, input2_pool, k, dim=dim)
+        pw_x[:, 1, 1], pw_y[:, 1, 1] = neigh_penalty(input1_pool, input1_pool, k, dim=dim)
+
+        pw_x = beta * gamma * pw_x
+        pw_y = beta * gamma * pw_y
+        
+        unary1 = unary1_torch.clone()
+        unary2 = unary2_torch.clone()
+        if dim==2:
+            unary2[:,:-1,:] += (pw_x[:,1,0] + pw_x[:,1,1])/2.
+            unary1[:,:-1,:] += (pw_x[:,0,1] + pw_x[:,0,0])/2.
+            unary2[:,1:,:] += (pw_x[:,0,1] + pw_x[:,1,1])/2.
+            unary1[:,1:,:] += (pw_x[:,1,0] + pw_x[:,0,0])/2.
+
+            unary2[:,:,:-1] += (pw_y[:,1,0] + pw_y[:,1,1])/2.
+            unary1[:,:,:-1] += (pw_y[:,0,1] + pw_y[:,0,0])/2.
+            unary2[:,:,1:] += (pw_y[:,0,1] + pw_y[:,1,1])/2.
+            unary1[:,:,1:] += (pw_y[:,1,0] + pw_y[:,0,0])/2.
+        elif dim==3:
+            unary2[:,:,:-1,:] += (pw_x[:,1,0] + pw_x[:,1,1])/2.
+            unary1[:,:,:-1,:] += (pw_x[:,0,1] + pw_x[:,0,0])/2.
+            unary2[:,:,1:,:] += (pw_x[:,0,1] + pw_x[:,1,1])/2.
+            unary1[:,:,1:,:] += (pw_x[:,1,0] + pw_x[:,0,0])/2.
+
+            unary2[:,:,:,:-1] += (pw_y[:,1,0] + pw_y[:,1,1])/2.
+            unary1[:,:,:,:-1] += (pw_y[:,0,1] + pw_y[:,0,0])/2.
+            unary2[:,:,:,1:] += (pw_y[:,0,1] + pw_y[:,1,1])/2.
+            unary1[:,:,:,1:] += (pw_y[:,1,0] + pw_y[:,0,0])/2.
+
+        pw_x = (pw_x[:,1,0] + pw_x[:,0,1] - pw_x[:,1,1] - pw_x[:,0,0])/2
+        pw_y = (pw_y[:,1,0] + pw_y[:,0,1] - pw_y[:,1,1] - pw_y[:,0,0])/2
+
+        unary1 = unary1.detach().cpu().numpy()
+        unary2 = unary2.detach().cpu().numpy()
         pw_x = pw_x.detach().cpu().numpy()
         pw_y = pw_y.detach().cpu().numpy()
 
         for i in range(batch_size):
-            pw_x_i = beta * gamma * pw_x[i]
-            pw_y_i = beta * gamma * pw_y[i]
-
             if dim==2:
-                unary2[i][:-1,:] += (pw_x_i[1,0] + pw_x_i[1,1])/2.
-                unary1[i][:-1,:] += (pw_x_i[0,1] + pw_x_i[0,0])/2.
-                unary2[i][1:,:] += (pw_x_i[0,1] + pw_x_i[1,1])/2.
-                unary1[i][1:,:] += (pw_x_i[1,0] + pw_x_i[0,0])/2.
-
-                unary2[i][:,:-1] += (pw_y_i[1,0] + pw_y_i[1,1])/2.
-                unary1[i][:,:-1] += (pw_y_i[0,1] + pw_y_i[0,0])/2.
-                unary2[i][:,1:] += (pw_y_i[0,1] + pw_y_i[1,1])/2.
-                unary1[i][:,1:] += (pw_y_i[1,0] + pw_y_i[0,0])/2.
+                mask.append(graphcut_multi(unary2[i], unary1[i], pw_x[i], pw_y[i], alpha[i], beta, eta, n_labels))
             elif dim==3:
-                unary2[i][:,:-1,:] += (pw_x_i[1,0] + pw_x_i[1,1])/2.
-                unary1[i][:,:-1,:] += (pw_x_i[0,1] + pw_x_i[0,0])/2.
-                unary2[i][:,1:,:] += (pw_x_i[0,1] + pw_x_i[1,1])/2.
-                unary1[i][:,1:,:] += (pw_x_i[1,0] + pw_x_i[0,0])/2.
-
-                unary2[i][:,:,:-1] += (pw_y_i[1,0] + pw_y_i[1,1])/2.
-                unary1[i][:,:,:-1] += (pw_y_i[0,1] + pw_y_i[0,0])/2.
-                unary2[i][:,:,1:] += (pw_y_i[0,1] + pw_y_i[1,1])/2.
-                unary1[i][:,:,1:] += (pw_y_i[1,0] + pw_y_i[0,0])/2.
-
-            pw_x_i = (pw_x_i[1,0] + pw_x_i[0,1] - pw_x_i[1,1] - pw_x_i[0,0])/2
-            pw_y_i = (pw_y_i[1,0] + pw_y_i[0,1] - pw_y_i[1,1] - pw_y_i[0,0])/2
-
-            if dim==2:
-                mask.append(graphcut_multi(unary2[i], unary1[i], pw_x_i, pw_y_i, alpha[i],  beta, eta, n_labels))
-            elif dim==3:
-                mask.append(graphcut_multi_float(unary2[i], unary1[i], pw_x_i, pw_y_i, alpha[i],  beta, eta, n_labels, dim=dim, beta_c=beta_c))
+                mask.append(graphcut_multi_float(unary2[i], unary1[i], pw_x[i], pw_y[i], alpha[i],  beta, eta, n_labels, dim=dim, beta_c=beta_c))
 
             ratio[i] = mask[i].sum()
 
@@ -781,6 +785,44 @@ def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alph
             mask = mask.unsqueeze(1)
         if warp>0:
             mask = F.grid_sample(mask, grid-grid_offset, padding_mode="reflection")
+
+        if transport:
+	    # input1
+            plan = mask_transport(mask, unary1_torch, eps=t_eps, t_type=t_type)
+            plan_move = plan.max(-2)[1] * plan.sum(-2)
+            plan_move_idx = torch.nonzero(plan_move)
+
+            input1_transport = input1.clone()
+            for idx in plan_move_idx:
+                ex_idx = idx[0]
+                target_idx = idx[1]
+                source_idx = plan_move[ex_idx, target_idx]
+
+                target_idx = [target_idx//block_num, target_idx%block_num]
+                source_idx = [source_idx//block_num, source_idx%block_num]
+
+                input1_transport[ex_idx,:, target_idx[0]*block_size: (target_idx[0]+1)*block_size, target_idx[1]*block_size: (target_idx[1]+1)*block_size] =\
+                input1[ex_idx,:, source_idx[0]*block_size: (source_idx[0]+1)*block_size, source_idx[1]*block_size: (source_idx[1]+1)*block_size]
+            input1 = input1_transport
+
+            # input2
+            plan = mask_transport(1-mask, unary2_torch, eps=t_eps, t_type=t_type)
+            plan_move = plan.max(-2)[1] * plan.sum(-2)
+            plan_move_idx = torch.nonzero(plan_move)
+
+            input2_transport = input2.clone()
+            for idx in plan_move_idx:
+                ex_idx = idx[0]
+                target_idx = idx[1]
+                source_idx = plan_move[ex_idx, target_idx]
+                
+                target_idx = [target_idx//block_num, target_idx%block_num]
+                source_idx = [source_idx//block_num, source_idx%block_num]
+                
+                input2_transport[ex_idx,:, target_idx[0]*block_size: (target_idx[0]+1)*block_size, target_idx[1]*block_size: (target_idx[1]+1)*block_size] =\
+                input2[ex_idx,:, source_idx[0]*block_size: (source_idx[0]+1)*block_size, source_idx[1]*block_size: (source_idx[1]+1)*block_size]
+            input2 = input2_transport
+
         mask = F.interpolate(mask, size=width)
 
     else:
@@ -824,6 +866,36 @@ def mixup_graph(input1, input2, grad1, grad2, block_num=2, method='random', alph
         return out, ratio
       
     return mask * input1 + (1-mask) * input2, ratio
+
+
+def mask_transport(mask, grad_pool, eps=0.01, t_type='full'):
+    batch_size = mask.shape[0]
+    block_num = mask.shape[-1]
+    C = cost_matrix_dict[str(block_num)]
+    
+    if t_type=='full':
+        z = (mask>0).float()
+    else:
+        z = mask
+    
+    cost = eps * C - grad_pool.reshape(-1, block_num**2, 1) * z.reshape(-1, 1, block_num**2)
+    n_iter = int(np.sqrt(block_num))    
+    
+    # row and col
+    for _ in range(n_iter):
+        row_best = cost.min(-1)[1]
+        plan = torch.zeros_like(cost).scatter_(-1, row_best.unsqueeze(-1), 1)
+
+        # column resolve
+        cost_fight = plan * cost
+        col_best = cost_fight.min(-2)[1]
+        plan_win = torch.zeros_like(cost).scatter_(-2, col_best.unsqueeze(-2), 1) * plan
+        plan_lose = (1-plan_win) * plan
+
+        cost += plan_lose
+        
+    plan_move = (plan_win - torch.eye(block_num**2, device='cuda'))>0
+    return plan_move
 
   
 def create_val_folder(data_set_path):

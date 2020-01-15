@@ -104,6 +104,10 @@ parser.add_argument('--warp', type=float, default=0.0)
 parser.add_argument('--dim', type=int, default=2)
 parser.add_argument('--beta_c', type=float, default=0.0)
 
+parser.add_argument('--transport', type=str2bool, default=False)
+parser.add_argument('--t_eps', type=float, default=10)
+parser.add_argument('--t_type', type=str, default='full')
+
 parser.add_argument('--jsd', type=str2bool, default=False)
 parser.add_argument('--jsd_lam', type=float, default=12)
 parser.add_argument('--clean_lam', type=float, default=0.0)
@@ -167,6 +171,9 @@ def experiment_name_non_mnist(dataset=args.dataset,
                     neigh_size = args.neigh_size,
                     dim = args.dim,
                     warp = args.warp,
+                    transport = args.transport,
+                    t_type = args.t_type,
+                    t_eps = args.t_eps,
                     reg = args.reg,
                     itermax = args.itermax,
                     in_batch = args.in_batch,
@@ -185,11 +192,11 @@ def experiment_name_non_mnist(dataset=args.dataset,
     exp_name += '_train_'+str(train)
     exp_name += '_eph_'+str(epochs)
 
-    exp_name +='_bs_'+str(batch_size)
-    exp_name += '_lr_'+str(lr)
-    exp_name += '_mom_'+str(momentum)
-    exp_name +='_decay_'+str(decay)
-    exp_name += '_data_aug_'+str(data_aug)
+    # exp_name +='_bs_'+str(batch_size)
+    # exp_name += '_lr_'+str(lr)
+    # exp_name += '_mom_'+str(momentum)
+    # exp_name +='_decay_'+str(decay)
+    # exp_name += '_data_aug_'+str(data_aug)
     if mixup_alpha:
         exp_name += '_m_alpha_'+str(mixup_alpha)
     if emd:
@@ -197,9 +204,11 @@ def experiment_name_non_mnist(dataset=args.dataset,
     if box:
         exp_name += '_box_' + method
     if graph:
-        exp_name += '_graph_' + method + '_n_labels_' + str(n_labels) + '_beta_' + str(beta) + '_gamma_' + str(gamma) + '_eta_' +str(eta) + '_loss_' +str(loss_alpha)
+        exp_name += '_graph_' + method + '_n_labels_' + str(n_labels) + '_beta_' + str(beta) + '_gamma_' + str(gamma) + '_neigh_' + str(neigh_size) + '_eta_' +str(eta) + '_loss_' +str(loss_alpha)
+    if transport:
+        exp_name += '_transport_' + t_type + '_eps_' + str(t_eps)
     if dim==3:
-        exp_name += '3d'
+        exp_name += '_3d'
     if warp>0:
         exp_name += '_warp'
     if augmix:
@@ -220,14 +229,17 @@ def experiment_name_non_mnist(dataset=args.dataset,
         exp_name += '_add_name_'+str(add_name)
 
     # exp_name += strftime("_%Y-%m-%d_%H:%M:%S", gmtime())
-    print('experiement name: ' + exp_name)
+    print('\nexperiement name: ' + exp_name)
     return exp_name
 
 
-def print_log(print_string, log):
-    print("{}".format(print_string))
+def print_log(print_string, log, end='\n'):
+    print("{}".format(print_string), end=end)
     if log is not None:
-        log.write('{}\n'.format(print_string))
+        if end == '\n':
+            log.write('{}\n'.format(print_string))
+        else:
+            log.write('{} '.format(print_string))
         log.flush()
 
 def save_checkpoint(state, is_best, save_path, filename):
@@ -367,7 +379,7 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
                 emd=args.emd, proximal=args.proximal, reg=args.reg, itermax=args.itermax, label_inter=args.label_inter, mean=mean, std=std,
                 box=args.box, graph=args.graph, method=args.method, grad=unary, block_num=args.block_num, 
                 beta=args.beta, gamma=args.gamma, eta=args.eta, neigh_size=args.neigh_size, n_labels=args.n_labels, label_cost=args.label_cost,
-                sigma=args.sigma, warp=args.warp, dim=args.dim, beta_c=args.beta_c)
+                sigma=args.sigma, warp=args.warp, dim=args.dim, beta_c=args.beta_c, transport=args.transport, t_eps=args.t_eps, t_type=args.t_type)
 
             loss = bce_loss(softmax(output), reweighted_target)
             if args.graph and args.clean_lam > 0:
@@ -480,7 +492,7 @@ def validate(val_loader, model, log, fgsm=False, eps=4, mean=None, std=None):
     return top1.avg, losses.avg
 
 
-def test_robust(net, mean, std):
+def test_robust(net, mean, std, log):
     net.eval()
     test_transform = transforms.Compose([transforms.ToTensor()])
 
@@ -490,7 +502,7 @@ def test_robust(net, mean, std):
 
         for path in dataset_tinyImagenet_dist_list:
             name = os.path.basename(path)
-            print("{}: ".format(name), end=' ')
+            print_log("{}: ".format(name), log, end=' ')
             
             prec1_total = 0
             prec5_total = 0
@@ -509,27 +521,31 @@ def test_robust(net, mean, std):
                         prec1_total += prec1.item()
                         prec5_total += prec5.item()
                 
-            print("{:.2f}".format(prec1_total/len(testloader)/5))
+            print_log("{:.2f}".format(prec1_total/len(testloader)/5), log)
  
     else: 
-        dataset_cifar100_dist_list = glob('/home/janghyun/Codes/Wasserstein_Preprocessor/manifold_mixup/data/Cifar100-C/*.npy')
-        label = np.load('/home/janghyun/Codes/Wasserstein_Preprocessor/manifold_mixup/data/Cifar100-C/labels.npy')
+        if args.dataset == 'cifar100':
+            dataset_cifar_dist_list = glob('/home/janghyun/Codes/Wasserstein_Preprocessor/manifold_mixup/data/Cifar100-C/*.npy')
+            label = np.load('/home/janghyun/Codes/Wasserstein_Preprocessor/manifold_mixup/data/Cifar100-C/labels.npy')
+        elif args.dataset =='cifar10':
+            dataset_cifar_dist_list = glob('/home/janghyun/Codes/Wasserstein_Preprocessor/manifold_mixup/data/Cifar10-C/*.npy')
+            label = np.load('/home/janghyun/Codes/Wasserstein_Preprocessor/manifold_mixup/data/Cifar10-C/labels.npy')
 
-        for path in dataset_cifar100_dist_list:
+        for path in dataset_cifar_dist_list:
             name = os.path.basename(path)[:-4]
             if name == 'labels':
                 continue
                 
-            print("{:20}:".format(name), end=' ')
-            dataset_cifar100_dist = np.load(path)
-            dataset_cifar100_dist = dataset_cifar100_dist.reshape(5, 100, 100, 32, 32, 3)
+            print_log("{:20}:".format(name), log, end=' ')
+            dataset_cifar_dist = np.load(path)
+            dataset_cifar_dist = dataset_cifar_dist.reshape(5, 100, 100, 32, 32, 3)
             
             prec1_total = 0
             prec5_total = 0
             for level in range(5):
                 # print("(level{})".format(level+1), end='  ')
                 
-                for batch_idx, input in enumerate(dataset_cifar100_dist[level]):
+                for batch_idx, input in enumerate(dataset_cifar_dist[level]):
                     with torch.no_grad():
                         input = torch.tensor(input/255, dtype=torch.float32).permute(0,3,1,2).cuda()
                         target = torch.tensor(label[batch_idx*100: (batch_idx+1)*100], dtype=torch.int64).cuda()
@@ -539,7 +555,7 @@ def test_robust(net, mean, std):
                         prec1_total += prec1.item()
                         prec5_total += prec5.item()
                        
-            print("{:.2f}".format(prec1_total/500))
+            print_log("{:.2f}".format(prec1_total/500), log)
 
 
 best_acc = 0
@@ -694,7 +710,7 @@ def main():
     acc_var = np.maximum(np.max(test_acc[-10:])- np.median(test_acc[-10:]), np.median(test_acc[-10:]) - np.min(test_acc[-10:]))
     print_log("\nfinal 10 epoch acc (median) : {:.2f} (+- {:.2f})".format(np.median(test_acc[-10:]), acc_var), log)
     
-    test_robust(net, mean, std)
+    test_robust(net, mean, std, log)
     val_acc, val_los = validate(test_loader, net, log, fgsm=True, eps=4, mean=mean, std=std)
     val_acc, val_los = validate(test_loader, net, log, fgsm=True, eps=8, mean=mean, std=std)
     

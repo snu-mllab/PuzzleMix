@@ -83,7 +83,8 @@ class Wide_ResNet(nn.Module):
 
     def forward(self, x, target= None, mixup=False, mixup_hidden=False, mixup_alpha=None, loss_batch=None, in_batch=False, p=1.0,
                 emd=False, proximal=True, reg=1e-5, itermax=10, label_inter=False, mean=None, std=None,
-                box=False, graph=False, method='random', grad=None, block_num=32, beta=0.0, gamma=0., eta=0.2, neigh_size=2, n_labels=2, label_cost='l2',sigma=1.0, warp=0.0, dim=2, beta_c=0.0):
+                box=False, graph=False, method='random', grad=None, block_num=32, beta=0.0, gamma=0., eta=0.2, neigh_size=2, n_labels=2, label_cost='l2',sigma=1.0, warp=0.0, dim=2, beta_c=0.0,
+                transport=False, t_eps=10.0, t_type='full'):
     
         if self.per_img_std:
             x = per_image_standardization(x)
@@ -104,7 +105,8 @@ class Wide_ResNet(nn.Module):
             out, target_reweighted = mixup_process(out, target_reweighted, mixup_alpha=mixup_alpha, loss_batch=loss_batch, p=p, in_batch=in_batch, 
                     emd=emd, proximal=proximal, reg=reg, itermax=itermax, label_inter=label_inter, mean=mean, std=std,
                     box=box, graph=graph, method=method, grad=grad, block_num=block_num,
-                    beta=beta, gamma=gamma, eta=eta, neigh_size=neigh_size, n_labels=n_labels, label_cost=label_cost, sigma=sigma, warp=warp, dim=dim, beta_c=beta_c)
+                    beta=beta, gamma=gamma, eta=eta, neigh_size=neigh_size, n_labels=n_labels, label_cost=label_cost, sigma=sigma, warp=warp, dim=dim, beta_c=beta_c,
+                    transport=transport, t_eps=t_eps, t_type=t_type)
 
         out = self.conv1(out)
         out = self.layer1(out)
