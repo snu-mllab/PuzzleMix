@@ -789,40 +789,11 @@ def mixup_graph(input1, grad1, indices, block_num=2, method='random', alpha=0.5,
         if transport:
 	    # input1
             plan = mask_transport(mask, unary1_torch, eps=t_eps, t_type=t_type)
-            plan_move = plan.max(-2)[1] * plan.sum(-2)
-            plan_move_idx = torch.nonzero(plan_move)
-
-            input1_transport = input1.clone()
-            for idx in plan_move_idx:
-                ex_idx = idx[0]
-                target_idx = idx[1]
-                source_idx = plan_move[ex_idx, target_idx]
-
-                target_idx = [target_idx//block_num, target_idx%block_num]
-                source_idx = [source_idx//block_num, source_idx%block_num]
-
-                input1_transport[ex_idx,:, target_idx[0]*block_size: (target_idx[0]+1)*block_size, target_idx[1]*block_size: (target_idx[1]+1)*block_size] =\
-                input1[ex_idx,:, source_idx[0]*block_size: (source_idx[0]+1)*block_size, source_idx[1]*block_size: (source_idx[1]+1)*block_size]
-            input1 = input1_transport
+            input1 = transport_image(input1, plan, batch_size, block_num, block_size)
 
             # input2
             plan = mask_transport(1-mask, unary2_torch, eps=t_eps, t_type=t_type)
-            plan_move = plan.max(-2)[1] * plan.sum(-2)
-            plan_move_idx = torch.nonzero(plan_move)
-
-            input2_transport = input2.clone()
-            for idx in plan_move_idx:
-                ex_idx = idx[0]
-                target_idx = idx[1]
-                source_idx = plan_move[ex_idx, target_idx]
-                
-                target_idx = [target_idx//block_num, target_idx%block_num]
-                source_idx = [source_idx//block_num, source_idx%block_num]
-                
-                input2_transport[ex_idx,:, target_idx[0]*block_size: (target_idx[0]+1)*block_size, target_idx[1]*block_size: (target_idx[1]+1)*block_size] =\
-                input2[ex_idx,:, source_idx[0]*block_size: (source_idx[0]+1)*block_size, source_idx[1]*block_size: (source_idx[1]+1)*block_size]
-            input2 = input2_transport
-
+            input2 = transport_image(input2, plan, batch_size, block_num, block_size)
         mask = F.interpolate(mask, size=width)
 
     else:
@@ -893,9 +864,23 @@ def mask_transport(mask, grad_pool, eps=0.01, t_type='full'):
         plan_lose = (1-plan_win) * plan
 
         cost += plan_lose
-        
-    plan_move = (plan_win - torch.eye(block_num**2, device='cuda'))>0
-    return plan_move
+    
+    return plan_win
+    # plan_move = (plan_win - torch.eye(block_num**2, device='cuda'))>0
+    # return plan_move
+
+
+def transport_image(img, plan, batch_size, block_num, block_size):
+    input_patch = img.reshape([batch_size, 3, block_num, block_size, 32]).transpose(-2,-1)
+    input_patch = input_patch.reshape([batch_size, 3, block_num, block_num, block_size, block_size]).transpose(-2,-1)
+    input_patch = input_patch.reshape([batch_size, 3, block_num**2, block_size, block_size]).permute(0,1,3,4,2).unsqueeze(-1)
+
+    input_transport = plan.transpose(-2,-1).unsqueeze(1).unsqueeze(1).unsqueeze(1).matmul(input_patch).squeeze(-1).permute(0,1,4,2,3)
+    input_transport = input_transport.reshape([batch_size, 3, block_num, block_num, block_size, block_size])
+    input_transport = input_transport.transpose(-2,-1).reshape([batch_size, 3, block_num, block_num * block_size, block_size])
+    input_transport = input_transport.transpose(-2,-1).reshape([batch_size, 3, block_num * block_size, block_num * block_size])
+    
+    return input_transport
 
   
 def create_val_folder(data_set_path):

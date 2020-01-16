@@ -358,7 +358,11 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
                 input_var = Variable(input, requires_grad=True)
                 target_var = Variable(target)
             
-                model.eval()
+                if args.clean_lam > 0:
+                    model.train()
+                else:
+                    model.eval()
+
                 output = model(input_var)
                 loss_batch = criterion_batch(output, target_var)
                 loss_batch_mean = torch.mean(loss_batch, dim=0)
@@ -563,7 +567,7 @@ def main():
     ### set up the experiment directories########
     if not args.log_off:
         exp_name = experiment_name_non_mnist()
-        exp_dir = args.root_dir+exp_name
+        exp_dir = os.path.join(args.root_dir, exp_name)
 
         if not os.path.exists(exp_dir):
             os.makedirs(exp_dir)
@@ -655,6 +659,8 @@ def main():
     
     for epoch in range(args.start_epoch, args.epochs):
         current_learning_rate = adjust_learning_rate(optimizer, epoch, args.gammas, args.schedule)
+        if epoch == args.schedule[0]:
+            args.clean_lam == 0
 
         need_hour, need_mins, need_secs = convert_secs2time(epoch_time.avg * (args.epochs-epoch))
         need_time = '[Need: {:02d}:{:02d}:{:02d}]'.format(need_hour, need_mins, need_secs)
