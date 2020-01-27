@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 import torch.nn.functional as F
 import augmentations
 import gco
+from ortools.graph import pywrapgraph
+import copy
 
 class AverageMeter(object):
   """Computes and stores the average and current value"""
@@ -319,7 +321,7 @@ def barycenter_conv2d(input1, input2, reg=2e-3, weights=None, numItermax=5, prox
 def mixup_process(out, target_reweighted, mixup_alpha=1.0, loss_batch=None, p=1.0, in_batch=0, hidden=0,
                   emd=0, proximal=0, reg=1e-5, itermax=1, label_inter=0, mean=None, std=None,
                   box=0, graph=0, method='random', grad=None, block_num=-1, beta=0.0, gamma=0., eta=0.2, neigh_size=2, n_labels=2, label_cost='l2', sigma=1.0, warp=0.0, dim=2, beta_c=0.0,
-                  transport=False, t_eps=10.0, t_type='full'):
+                  transport=False, t_eps=10.0, t_type='full', matching=False):
     if block_num == -1:
         block_num = 2**np.random.randint(1, 5)
     if in_batch:
@@ -356,7 +358,12 @@ def mixup_process(out, target_reweighted, mixup_alpha=1.0, loss_batch=None, p=1.
             out, ratio = mixup_box(out, out[indices], None, None, method=method, alpha=lam[0])
         elif graph:
             if block_num > 1:
-                out, ratio = mixup_graph(out, grad, indices, block_num=block_num, method=method,
+                if matching:
+                    out, ratio, indices = mixup_graph(out, grad, indices, block_num=block_num, method=method,
+                             alpha=lam, beta=beta, gamma=gamma, eta=eta, neigh_size=neigh_size, n_labels=n_labels, label_cost=label_cost, sigma=sigma, warp=warp, dim=dim, beta_c=beta_c,
+                             mean=mean, std=std, emd=emd, reg=reg, itermax=itermax, transport=transport, t_eps=t_eps, t_type=t_type, matching=matching)
+                else:
+                    out, ratio = mixup_graph(out, grad, indices, block_num=block_num, method=method,
                              alpha=lam, beta=beta, gamma=gamma, eta=eta, neigh_size=neigh_size, n_labels=n_labels, label_cost=label_cost, sigma=sigma, warp=warp, dim=dim, beta_c=beta_c,
                              mean=mean, std=std, emd=emd, reg=reg, itermax=itermax, transport=transport, t_eps=t_eps, t_type=t_type)
             else: 
@@ -664,7 +671,7 @@ def mixup_box(input1, input2, grad1, grad2, method='random', alpha=0.5):
 from scipy.ndimage.filters import gaussian_filter
 random_state = np.random.RandomState(None)
 
-def mixup_graph(input1, grad1, indices, block_num=2, method='random', alpha=0.5, beta=0., gamma=0., eta=0.2, neigh_size=2, n_labels=2, label_cost='l2', sigma=1.0, warp=0.0, dim=2, beta_c=0.0, mean=None, std=None, emd=False, reg=1e-5, itermax=5, transport=False, t_eps=10.0, t_type='full'):
+def mixup_graph(input1, grad1, indices, block_num=2, method='random', alpha=0.5, beta=0., gamma=0., eta=0.2, neigh_size=2, n_labels=2, label_cost='l2', sigma=1.0, warp=0.0, dim=2, beta_c=0.0, mean=None, std=None, emd=False, reg=1e-5, itermax=5, transport=False, t_eps=10.0, t_type='full', matching=False):
     input2 = input1[indices]
     batch_size, _, _, width = input1.shape
     block_size = width // block_num
@@ -680,12 +687,16 @@ def mixup_graph(input1, grad1, indices, block_num=2, method='random', alpha=0.5,
         beta /= 3
     
     grad1_pool = F.avg_pool2d(grad1, block_size)
+
     if dim==2:
         mask = np.zeros([batch_size, 1, width, width])
         unary1_torch = grad1_pool / grad1_pool.view(batch_size, -1).sum(1).view(batch_size, 1, 1)
     elif dim==3:
         mask = np.zeros([batch_size, 3, width, width])
         unary1_torch = grad1_pool / grad1_pool.view(batch_size, -1).sum(1).view(batch_size, 1, 1, 1)
+    if matching: 
+        indices = get_index(make_distance_matrix(unary1_torch))
+    input2 = input1[indices]
     
     if warp > 0:
         row = torch.linspace(-1, 1, block_num).cuda()
@@ -835,9 +846,10 @@ def mixup_graph(input1, grad1, indices, block_num=2, method='random', alpha=0.5,
             
             out += (mask==w).float() * barycenter
         return out, ratio
-      
-    return mask * input1 + (1-mask) * input2, ratio
-
+    if matching:  
+        return mask * input1 + (1-mask) * input2, ratio, indices
+    else:
+        return mask * input1 + (1-mask) * input2, ratio
 
 def mask_transport(mask, grad_pool, eps=0.01, t_type='full'):
     batch_size = mask.shape[0]
@@ -871,7 +883,7 @@ def mask_transport(mask, grad_pool, eps=0.01, t_type='full'):
 
 
 def transport_image(img, plan, batch_size, block_num, block_size):
-    input_patch = img.reshape([batch_size, 3, block_num, block_size, 32]).transpose(-2,-1)
+    input_patch = img.reshape([batch_size, 3, block_num, block_size, img.shape[-1]]).transpose(-2,-1)
     input_patch = input_patch.reshape([batch_size, 3, block_num, block_num, block_size, block_size]).transpose(-2,-1)
     input_patch = input_patch.reshape([batch_size, 3, block_num**2, block_size, block_size]).permute(0,1,3,4,2).unsqueeze(-1)
 
@@ -932,8 +944,166 @@ def aug(image, preprocess):
     
     return mix
 
+class SimpleHungarianSolver:
+    def __init__(self, nworkers, ntasks, value=100000):
+        '''
+        This can be used when nworkers*k > ntasks
+        Args:
+            nworkers - int
+            ntasks - int
+            value - int
+                should be large defaults to be 100000
+            pairwise_lamb - int
+        '''
+        self.nworkers = nworkers
+        self.ntasks = ntasks
+        self.value = value
+
+        self.source = 0
+        self.sink = self.nworkers+self.ntasks+1
+
+        self.supplies = [self.nworkers]+(self.ntasks+self.nworkers)*[0]+[-self.nworkers]
+        self.start_nodes = list()
+        self.end_nodes = list()
+        self.capacities = list()
+        self.common_costs = list()
+
+        self.start_nodes = np.ndarray([self.nworkers*self.ntasks+self.nworkers+self.ntasks])
+        self.end_nodes = np.ndarray([self.nworkers*self.ntasks+self.nworkers+self.ntasks])
+        self.capacities = np.ndarray([self.nworkers*self.ntasks+self.nworkers+self.ntasks])
+        self.common_costs = np.ndarray([self.nworkers+self.ntasks])
+
+
+        for work_idx in range(self.nworkers):
+            self.start_nodes[work_idx] = self.source
+            self.end_nodes[work_idx] = work_idx+1
+            self.capacities[work_idx] = 1
+            self.common_costs[work_idx] = 0
+
+        for task_idx in range(self.ntasks):
+            self.start_nodes[task_idx+nworkers] = nworkers+1+task_idx
+            self.end_nodes[task_idx+nworkers] = nworkers+ntasks+1
+            self.capacities[task_idx+nworkers] = 1
+            self.common_costs[task_idx+nworkers] = 0
+
+        idx = nworkers+ntasks
+        for work_idx in range(self.nworkers):
+            for task_idx in range(self.ntasks):
+                self.start_nodes[idx] = work_idx+1
+                self.end_nodes[idx] = nworkers+1+task_idx
+                self.capacities[idx] = 1
+                idx += 1
+
+        self.nnodes = len(self.start_nodes)
+    
+    def solve(self, array):
+        assert array.shape == (self.nworkers, self.ntasks), "Wrong array shape, it should be ({}, {})".format(self.nworkers, self.ntasks)
+
+        self.array = self.value*array
+        self.array = -self.array # potential to cost
+        self.array = self.array.astype(np.int32)
+
+        costs = np.ndarray([self.nworkers*self.ntasks+self.nworkers+self.ntasks])
+        costs[:len(self.common_costs)] = copy.copy(self.common_costs)
+        #costs = copy.copy(self.common_costs)
+        #Here
+        idx = len(self.common_costs)
+        for work_idx in range(self.nworkers):
+            for task_idx in range(self.ntasks):
+                costs[idx] = self.array[work_idx][task_idx]
+                idx += 1
+        #here
+        #costs = np.array(costs)
+        costs = list(map(int, (costs.tolist())))
+
+        start_nodes = list(map(int, self.start_nodes.tolist()))
+        end_nodes = list(map(int, self.end_nodes.tolist()))
+        capacities = list(map(int, self.capacities.tolist()))
+        common_costs = list(map(int, self.common_costs.tolist()))
+        nnodes = self.nnodes
+
+        nworkers = self.nworkers
+        ntasks = self.ntasks
+
+        supplies = self.supplies
+        source = self.source
+        sink = self.sink
+        
+        assert len(costs)==nnodes, "Length of costs should be {} but {}".format(nnodes, len(costs))
+        min_cost_flow = pywrapgraph.SimpleMinCostFlow()
+        for idx in range(nnodes):
+             min_cost_flow.AddArcWithCapacityAndUnitCost(start_nodes[idx], end_nodes[idx], capacities[idx], costs[idx])
+        for idx in range(ntasks+nworkers+2):
+            min_cost_flow.SetNodeSupply(idx, supplies[idx])
+        min_cost_flow.Solve()
+        results = np.ndarray([nworkers, 2])
+        idx = 0
+        for arc in range(min_cost_flow.NumArcs()):
+            tail = min_cost_flow.Tail(arc)
+            head = min_cost_flow.Head(arc)
+            if tail != source and head != sink:
+                if min_cost_flow.Flow(arc) > 0:
+                    results[idx,0] = tail-1
+                    results[idx,1] = head-nworkers-1
+                    idx+=1
+                    #results.append([tail-1, head-nworkers-1])
+        #Here
+        results_np = np.zeros_like(array)
+        for i in range(nworkers): results_np[int(results[i,0])][int(results[i,1])]=1
+        return results, results_np
+
+def l2_norm(matrix):
+    return torch.sqrt(torch.sum(matrix*matrix))
+
+def cosine(unary1, unary2, unary1_l2, unary2_l2):
+    return 1 - torch.sum(unary1*unary2) / (unary1_l2 * unary2_l2)
+
+
+#def make_distance_matrix(unary):
+#    batch_size, _, _ = unary.shape
+#    dist = np.ndarray([batch_size, batch_size])
+#    unary_flatten = torch.flatten(unary, start_dim=1)
+#    unary_l2 = torch.sqrt(torch.sum(unary*unary, dim=(1,2))).unsqueeze(-1)
+#    cross_product_matrix = torch.matmul(unary_flatten, torch.t(unary_flatten))
+#    dist = 1 - (cross_product_matrix / torch.matmul(unary_l2, torch.t(unary_l2)))
+#    indices = np.tril_indices(batch_size, k=-1)
+#    dist[indices] = 2e-5
+#    return dist.cpu().numpy()
+
+BATCH_SIZE = 100
+
+upper = torch.ones([BATCH_SIZE, BATCH_SIZE])
+upper = upper.cuda() * torch.tensor(np.triu(upper, 0), device='cuda').float()
+
+lower = torch.ones([BATCH_SIZE, BATCH_SIZE])
+lower = lower.cuda() * torch.tensor(np.tril(lower, -1), device='cuda').float()
+
+def make_distance_matrix(unary):
+    unary_flatten = torch.flatten(unary, start_dim=1).float()
+
+    dot_xy = torch.matmul(unary_flatten, torch.t(unary_flatten))
+    dot_xx = torch.diag(dot_xy).unsqueeze(dim=0)
+    dot_yy = torch.diag(dot_xy).unsqueeze(dim=1)
+
+    dist = dot_xx + dot_yy - 2*dot_xy
+    dist = dist * upper + 1e-5 * lower
+
+    return dist.cpu().numpy()
+
+def get_index(dist_matrix):
+    batch_size = dist_matrix.shape[0]
+    index = [-1 for i in range(batch_size)]
+    
+    SHS = SimpleHungarianSolver(batch_size, batch_size)
+    matching = SHS.solve(dist_matrix)[0]
+
+    for i in range(matching.shape[0]):
+        index[int(matching[i,0])] = int(matching[i,1])
+   
+    assert min(index) >= 0, 'Matching Error'
+    return index
+
 if __name__ == "__main__":
     create_val_folder('data/tiny-imagenet-200')  # Call method to create validation image folders
-
 
 
