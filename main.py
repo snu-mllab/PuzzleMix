@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+
 from __future__ import division
 
 import os, sys, shutil, time, random
@@ -96,7 +96,7 @@ parser.add_argument('--n_labels', type=int, default=3)
 parser.add_argument('--label_cost', type=str, default='l2')
 
 parser.add_argument('--beta', type=float, default=1.2)
-parser.add_argument('--gamma', type=float, default=1.0, help='[0,1]')
+parser.add_argument('--gamma', type=float, default=0.5, help='[0,1]')
 parser.add_argument('--eta', type=float, default=0.2)
 
 parser.add_argument('--sigma', type=float, default=2.0)
@@ -104,13 +104,21 @@ parser.add_argument('--warp', type=float, default=0.0)
 parser.add_argument('--dim', type=int, default=2)
 parser.add_argument('--beta_c', type=float, default=0.0)
 
-parser.add_argument('--transport', type=str2bool, default=False)
-parser.add_argument('--t_eps', type=float, default=10)
+parser.add_argument('--transport', type=str2bool, default=True)
+parser.add_argument('--t_eps', type=float, default=0.8)
+parser.add_argument('--t_size', type=int, default=16)
 parser.add_argument('--t_type', type=str, default='full')
+
+parser.add_argument('--adv_eps', type=float, default=8.0, help='attack ball')
+parser.add_argument('--adv_p', type=float, default=0.0, help='attack or not')
+parser.add_argument('--adv_type', type=str, default='out', choices=['in', 'out'])
+parser.add_argument('--adv_mixup', type=str2bool, default=True)
+parser.add_argument('--adv_init', type=str2bool, default=False)
 
 parser.add_argument('--jsd', type=str2bool, default=False)
 parser.add_argument('--jsd_lam', type=float, default=12)
 parser.add_argument('--clean_lam', type=float, default=0.0)
+
 
 # training
 parser.add_argument('--batch_size', type=int, default=100, help='Batch size.')
@@ -173,7 +181,13 @@ def experiment_name_non_mnist(dataset=args.dataset,
                     warp = args.warp,
                     transport = args.transport,
                     t_type = args.t_type,
+                    t_size = args.t_size,
                     t_eps = args.t_eps,
+                    adv_eps = args.adv_eps,
+                    adv_p = args.adv_p,
+                    adv_type = args.adv_type,
+                    adv_mixup = args.adv_mixup,
+                    adv_init = args.adv_init,
                     reg = args.reg,
                     itermax = args.itermax,
                     in_batch = args.in_batch,
@@ -193,7 +207,7 @@ def experiment_name_non_mnist(dataset=args.dataset,
     exp_name += '_eph_'+str(epochs)
 
     # exp_name +='_bs_'+str(batch_size)
-    # exp_name += '_lr_'+str(lr)
+    exp_name += '_lr_'+str(lr)
     # exp_name += '_mom_'+str(momentum)
     # exp_name +='_decay_'+str(decay)
     # exp_name += '_data_aug_'+str(data_aug)
@@ -206,7 +220,13 @@ def experiment_name_non_mnist(dataset=args.dataset,
     if graph:
         exp_name += '_graph_' + method + '_n_labels_' + str(n_labels) + '_beta_' + str(beta) + '_gamma_' + str(gamma) + '_neigh_' + str(neigh_size) + '_eta_' +str(eta) + '_loss_' +str(loss_alpha)
     if transport:
-        exp_name += '_transport_' + t_type + '_eps_' + str(t_eps)
+        exp_name += '_transport_' + t_type + '_eps_' + str(t_eps) + '_size_' + str(t_size)
+    if adv_p>0:
+        exp_name += '_adv_' + '_eps_' + str(adv_eps) + '_p_' + str(adv_p) + '_type_' + str(adv_type)
+    if adv_init:
+        exp_name += '_randinit_'
+    if not adv_mixup:
+        exp_name += '_no_mixup_'
     if dim==3:
         exp_name += '_3d'
     if warp>0:
@@ -305,8 +325,9 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
         # import pdb; pdb.set_trace()
         # measure data loading time
         #import pdb; pdb.set_trace()
-        
         data_time.update(time.time() - end)
+        optimizer.zero_grad()
+        
         #import pdb; pdb.set_trace()
         if args.augmix:
             m = np.float32(np.random.beta(1, 1))
@@ -345,49 +366,103 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
             loss_JSD = args.jsd_lam * (F.kl_div(p_mixture, p_clean, reduction='batchmean') +
                       F.kl_div(p_mixture, p_aug1, reduction='batchmean') +
                       F.kl_div(p_mixture, p_aug2, reduction='batchmean')) / 3. 
-            loss = bce_loss(softmax(output), reweighted_target)
-            loss += loss_JSD / args.num_classes
-            
+
+            if args.add_name == 'ce':
+                loss = criterion(logits_clean, target)
+                loss += loss_JSD 
+            elif args.add_name == 'bce': 
+                loss = bce_loss(softmax(output), reweighted_target)
+                loss += loss_JSD / args.num_classes
+            else:
+                raise AssertionError('augmix add_name check')
+
         elif (args.train == 'vanilla') or (epoch < args.delay):
             input_var, target_var = Variable(input), Variable(target)
+
             output, reweighted_target = model(input_var, target_var)
             loss = bce_loss(softmax(output), reweighted_target)
 
         elif args.train == 'mixup':
             if args.graph:
-                input_var = Variable(input, requires_grad=True)
-                target_var = Variable(target)
-            
-                if args.clean_lam > 0:
-                    model.train()
+                if args.adv_p > 0:
+                    adv_mask1 = np.random.binomial(n=1, p=args.adv_p)
+                    if args.adv_type == 'out':
+                        adv_mask2 = np.random.binomial(n=1, p=args.adv_p)
+                    else:
+                        adv_mask2 = adv_mask1
                 else:
-                    model.eval()
+                    adv_mask1 = 0
+                    adv_mask2 = 0
 
-                output = model(input_var)
-                loss_batch = criterion_batch(output, target_var)
+                if (adv_mask1 == 1 or adv_mask2 == 1) and args.adv_init:
+                    noise = torch.zeros_like(input).uniform_(-args.adv_eps/255., args.adv_eps/255.)
+                    input_orig = input * std + mean
+                    input_noise = input_orig + noise
+                    input_noise = torch.clamp(input_noise, 0, 1)
+                    noise = input_noise - input_orig
+                    input_noise = (input_noise - mean)/std
+                    input_var = Variable(input_noise, requires_grad=True)
+                else:
+                    input_var = Variable(input, requires_grad=True)
+                target_var = Variable(target)
+
+                # forward
+                if args.clean_lam == 0:
+                    model.eval()
+                    output = model(input_var)
+                    loss_batch =  criterion_batch(output, target_var)
+                else:
+                    model.train()
+                    output = model(input_var)
+                    loss_batch =  2 * args.clean_lam * criterion_batch(output, target_var) / args.num_classes
+
                 loss_batch_mean = torch.mean(loss_batch, dim=0)
                 loss_batch_mean.backward(retain_graph=True)
-
+                
+                # 3D
                 if args.dim==2:
                     unary = torch.sqrt(torch.mean(input_var.grad **2, dim=1))
                 elif args.dim==3:
                     unary = torch.abs(input_var.grad)
                 
+                # Adv
+                if (adv_mask1 == 1 or adv_mask2 == 1):
+                    if args.adv_init:
+                        noise += (args.adv_eps + 2) / 255. * input_var.grad.sign()
+                        noise = torch.clamp(noise, -args.adv_eps/255., args.adv_eps/255.)
+                        
+                        if args.adv_mixup:
+                            adv_mix_coef = np.random.uniform(0,1)
+                        else:
+                            adv_mix_coef = 1
+                        noise = adv_mix_coef * noise 
+                    else:
+                        if args.adv_mixup:
+                            adv_eps = args.adv_eps * np.random.uniform(0,1)
+                        else: 
+                            adv_eps = args.adv_eps
+                        noise = adv_eps / 255. * input_var.grad.sign()
+                else:
+                    noise = None
+                
+                # loss mixup alpha
                 if args.loss_alpha >= 0:
                     loss_batch_alpha = (loss_batch.data ** args.loss_alpha).detach().cpu().numpy()
-
-                model.train()
+                
+                # clean loss
+                if args.clean_lam == 0:
+                    model.train()
+                    optimizer.zero_grad()
             
             input_var, target_var = Variable(input), Variable(target)
             output, reweighted_target = model(input_var, target_var, mixup= True, mixup_alpha=args.mixup_alpha, loss_batch=loss_batch_alpha, p=args.prob, in_batch=args.in_batch,
                 emd=args.emd, proximal=args.proximal, reg=args.reg, itermax=args.itermax, label_inter=args.label_inter, mean=mean, std=std,
                 box=args.box, graph=args.graph, method=args.method, grad=unary, block_num=args.block_num, 
                 beta=args.beta, gamma=args.gamma, eta=args.eta, neigh_size=args.neigh_size, n_labels=args.n_labels, label_cost=args.label_cost,
-                sigma=args.sigma, warp=args.warp, dim=args.dim, beta_c=args.beta_c, transport=args.transport, t_eps=args.t_eps, t_type=args.t_type)
+                sigma=args.sigma, warp=args.warp, dim=args.dim, beta_c=args.beta_c, transport=args.transport, t_eps=args.t_eps, t_type=args.t_type, t_size=args.t_size,
+                noise=noise, adv_mask1=adv_mask1, adv_mask2=adv_mask2)
 
             loss = bce_loss(softmax(output), reweighted_target)
-            if args.graph and args.clean_lam > 0:
-                loss += 2 * args.clean_lam * loss_batch_mean / args.num_classes
 
         elif args.train== 'mixup_hidden':
             input_var, target_var = Variable(input), Variable(target)
@@ -416,7 +491,6 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
         top5.update(prec5.item(), input.size(0))
 
         # compute gradient and do SGD step
-        optimizer.zero_grad()
         loss.backward()
         optimizer.step()
         
@@ -427,8 +501,8 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
         batch_time.update(time.time() - end)
         end = time.time()
         
-        if not args.jsd:
-            mixing_avg.append((0.5 - reweighted_target[reweighted_target>0]).abs().mean().cpu().numpy())
+        #if not args.jsd:
+        #    mixing_avg.append((0.5 - reweighted_target[reweighted_target>0]).abs().mean().cpu().numpy())
         '''
         if i % args.print_freq == 0:
             print_log('  Epoch: [{:03d}][{:03d}/{:03d}]   '
@@ -441,13 +515,13 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
                 data_time=data_time, loss=losses, top1=top1, top5=top5) + time_string(), log)
         '''
 
-    if ((epoch) % 10 == 0 and not args.jsd):
-        print_log("average mixing weight: {:.3f}".format(np.mean(mixing_avg) + 0.5), log)
+    #if ((epoch) % 10 == 0 and not args.jsd):
+    #    print_log("average mixing weight: {:.3f}".format(np.mean(mixing_avg) + 0.5), log)
     print_log('  **Train** Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f} Error@1 {error1:.3f}'.format(top1=top1, top5=top5, error1=100-top1.avg), log)
     return top1.avg, top5.avg, losses.avg
 
 
-def validate(val_loader, model, log, fgsm=False, eps=4, mean=None, std=None):
+def validate(val_loader, model, log, fgsm=False, eps=4, rand_init=False, mean=None, std=None):
     losses = AverageMeter()
     top1 = AverageMeter()
     top5 = AverageMeter()
@@ -457,8 +531,8 @@ def validate(val_loader, model, log, fgsm=False, eps=4, mean=None, std=None):
 
     for i, (input, target) in enumerate(val_loader):
         if args.use_cuda:
-            target = target.cuda()
             input = input.cuda()
+            target = target.cuda()
 
         if fgsm:
             input_var = Variable(input, requires_grad=True)
@@ -494,6 +568,45 @@ def validate(val_loader, model, log, fgsm=False, eps=4, mean=None, std=None):
     else:
         print_log('  **Test** Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f} Error@1 {error1:.3f} Loss: {losses.avg:.3f} '.format(top1=top1, top5=top5, error1=100-top1.avg, losses=losses), log)
     return top1.avg, losses.avg
+
+
+def test_pgd(val_loader, model, log, eps=8, step=8, a_iter=1, rand_init=False, mean=None, std=None):
+    prec1_total = [0] * a_iter
+    prec5_total = [0] * a_iter
+    print("")
+    for batch_idx, (input, target) in enumerate(val_loader):
+        input_clean = input.cuda() * std + mean
+        target = target.cuda()
+        input = input_clean.detach().clone() 
+
+        if rand_init:
+            noise = torch.zeros_like(input).uniform_(-eps/255., eps/255.)  
+            input = torch.clamp(input + noise, 0, 1)
+            
+        for i in range(a_iter):
+            input_var = Variable(input, requires_grad=True)
+            optimizer_input = torch.optim.SGD([input_var], lr=0.1)
+            output = model((input_var - mean)/std)
+            loss = criterion(output, target)
+            optimizer_input.zero_grad()
+            loss.backward()
+
+            sign_data_grad = input_var.grad.sign()
+            input = input + step / 255. * sign_data_grad
+            eta = torch.clamp(input - input_clean, min=-eps/255., max=eps/255.)
+            input = torch.clamp(input_clean + eta, min=0, max=1).detach()
+                        
+            with torch.no_grad():
+                output = model((input-mean)/std)
+                prec1, prec5 = accuracy(output, target, topk=(1,5))
+                prec1_total[i] += prec1.item()
+                prec5_total[i] += prec5.item()
+    
+    for i in range(a_iter):
+        if rand_init:
+            print_log("PGD attack (eps {}, step {}, iter: {}): {:.2f}".format(eps, step, i+1, prec1_total[i]/100), log)
+        else:
+            print_log("FSGM attack (eps {}, step {}, iter: {}): {:.2f}".format(eps, step, i+1, prec1_total[i]/100), log)
 
 
 def test_robust(net, mean, std, log):
@@ -603,6 +716,7 @@ def main():
         stride = 2 
         mean = torch.tensor([0.5] * 3, dtype=torch.float32).view(1,3,1,1).cuda()
         std = torch.tensor([0.5] * 3, dtype=torch.float32).view(1,3,1,1).cuda()
+        args.labels_per_class = 500
     elif args.dataset == 'imagenet':
         stride = None
         mean = torch.tensor([0.485, 0.456, 0.406], dtype=torch.float32).view(1,3,1,1).cuda()
@@ -611,11 +725,15 @@ def main():
         stride = 1
         mean = torch.tensor([x / 255 for x in [125.3, 123.0, 113.9]], dtype=torch.float32).view(1,3,1,1).cuda()
         std = torch.tensor([x / 255 for x in [63.0, 62.1, 66.7]], dtype=torch.float32).view(1,3,1,1).cuda()
-    else:
+        args.labels_per_class = 5000
+    elif args.dataset == 'cifar100':
         stride = 1
         mean = torch.tensor([x / 255 for x in [129.3, 124.1, 112.4]], dtype=torch.float32).view(1,3,1,1).cuda()
         std = torch.tensor([x / 255 for x in [68.2, 65.4, 70.4]], dtype=torch.float32).view(1,3,1,1).cuda()
-
+        args.labels_per_class = 500
+    else:
+        raise AssertionError('Given Dataset is not supported!')
+        
 
     print_log("=> creating model '{}'".format(args.arch), log)
     net = models.__dict__[args.arch](num_classes,args.dropout,per_img_std, stride).cuda()
@@ -673,6 +791,9 @@ def main():
 
         # evaluate on validation set
         val_acc, val_los = validate(test_loader, net, log)
+        if (epoch%50)==0 and args.adv_p > 0:
+            _, _ = validate(test_loader, net, log, fgsm=True, eps=4, mean=mean, std=std)
+            _, _ = validate(test_loader, net, log, fgsm=True, eps=8, mean=mean, std=std)
         
         train_loss.append(tr_los)
         train_acc.append(tr_acc)
@@ -717,9 +838,18 @@ def main():
     print_log("\nfinal 10 epoch acc (median) : {:.2f} (+- {:.2f})".format(np.median(test_acc[-10:]), acc_var), log)
     
     test_robust(net, mean, std, log)
-    val_acc, val_los = validate(test_loader, net, log, fgsm=True, eps=4, mean=mean, std=std)
-    val_acc, val_los = validate(test_loader, net, log, fgsm=True, eps=8, mean=mean, std=std)
+    # val_acc, val_los = validate(test_loader, net, log, fgsm=True, eps=4, mean=mean, std=std)
+    # val_acc, val_los = validate(test_loader, net, log, fgsm=True, eps=8, mean=mean, std=std)
     
+    print_log("",log)
+    test_pgd(test_loader, net, log, eps=4, step=4, a_iter=1, rand_init=False, mean=mean, std=std)
+    test_pgd(test_loader, net, log, eps=4, step=1, a_iter=7, rand_init=False, mean=mean, std=std)
+    test_pgd(test_loader, net, log, eps=4, step=1, a_iter=7, rand_init=True, mean=mean, std=std)
+
+    test_pgd(test_loader, net, log, eps=8, step=8, a_iter=1, rand_init=False, mean=mean, std=std)
+    test_pgd(test_loader, net, log, eps=8, step=2, a_iter=7, rand_init=False, mean=mean, std=std)
+    test_pgd(test_loader, net, log, eps=8, step=2, a_iter=7, rand_init=True, mean=mean, std=std)
+
     if not args.log_off:
         log.close()
     
