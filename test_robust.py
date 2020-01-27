@@ -106,6 +106,8 @@ else:
 
 testloader = DataLoader(dataset, batch_size=100, num_workers=2, pin_memory=True)
 
+
+'''
 prec1_total = 0
 prec5_total = 0
 for batch_idx, (input, target) in enumerate(testloader):
@@ -119,8 +121,60 @@ for batch_idx, (input, target) in enumerate(testloader):
         prec5_total += prec5.item()
         
 print("clean: {:.2f}".format(prec1_total/100))
+'''
 
 
+eps_list = [4, 8]
+a_iter = 7
+step_list = [2,4,8]
+param_set = [(4,1,7, False), (4,1,7, True), (4,4,1,False), (8,2,7,False), (8,2,7,True), (8,8,1,False)]
+
+
+for eps, step, a_iter, random_init in param_set:
+    print("")
+    prec1_total = [0] * a_iter
+    prec5_total = [0] * a_iter
+    for batch_idx, (input, target) in enumerate(testloader):
+        input_clean = input.cuda()
+        target = target.cuda()
+        input = input_clean.detach().clone()
+        
+        if random_init:
+            noise = torch.zeros_like(input).uniform_(-eps/255., eps/255.)  
+            input = torch.clamp(input + noise, 0, 1)
+
+        for i in range(a_iter):
+            input_var = Variable(input, requires_grad=True)
+        
+            optimizer_input = torch.optim.SGD([input_var], lr=0.1)
+            output = net((input_var - mean) /std)
+            loss = criterion(output, target)
+            optimizer_input.zero_grad()
+            loss.backward()
+            
+            if i > 0:
+                prec1, prec5 = accuracy(output, target, topk=(1,5))
+                prec1_total[i-1] += prec1.item()
+                prec5_total[i-1] += prec5.item()
+
+            sign_data_grad = input_var.grad.sign()
+            input = input + step / 255. * sign_data_grad
+            eta = torch.clamp(input - input_clean, min=-eps/255., max=eps/255.)
+            input = torch.clamp(input_clean + eta, min=0, max=1).detach()
+                        
+        with torch.no_grad():
+            output = net((input - mean)/std)
+            prec1, prec5 = accuracy(output, target, topk=(1,5))
+            prec1_total[-1] += prec1.item()
+            prec5_total[-1] += prec5.item()
+                   
+    if random_init:
+        print('PGD')
+    for i in range(a_iter):
+        print("attack (eps {}, step {}, iter: {}): {:.2f}".format(eps, step, i+1, prec1_total[i]/100))
+
+
+'''
 eps_list = [4, 8]
 for eps in eps_list:
     prec1_total = 0
@@ -150,6 +204,7 @@ for eps in eps_list:
     print("attack (eps {}): {:.2f}".format(eps, prec1_total/100))
 
         
+
 
 # Input Corruption Test
 if args.dataset == 'tiny-imagenet-200':
@@ -207,5 +262,5 @@ else:
                     prec5_total += prec5.item()
                    
         print("{:.2f}".format(prec1_total/500))
-
+'''
 

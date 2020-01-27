@@ -321,7 +321,7 @@ def barycenter_conv2d(input1, input2, reg=2e-3, weights=None, numItermax=5, prox
 def mixup_process(out, target_reweighted, mixup_alpha=1.0, loss_batch=None, p=1.0, in_batch=0, hidden=0,
                   emd=0, proximal=0, reg=1e-5, itermax=1, label_inter=0, mean=None, std=None,
                   box=0, graph=0, method='random', grad=None, block_num=-1, beta=0.0, gamma=0., eta=0.2, neigh_size=2, n_labels=2, label_cost='l2', sigma=1.0, warp=0.0, dim=2, beta_c=0.0,
-                  transport=False, t_eps=10.0, t_type='full', matching=False):
+                  transport=False, t_eps=10.0, t_type='full', t_size=16, noise=None, adv_mask1=0, adv_mask2=0):
     if block_num == -1:
         block_num = 2**np.random.randint(1, 5)
     if in_batch:
@@ -358,14 +358,10 @@ def mixup_process(out, target_reweighted, mixup_alpha=1.0, loss_batch=None, p=1.
             out, ratio = mixup_box(out, out[indices], None, None, method=method, alpha=lam[0])
         elif graph:
             if block_num > 1:
-                if matching:
-                    out, ratio, indices = mixup_graph(out, grad, indices, block_num=block_num, method=method,
+                out, ratio = mixup_graph(out, grad, indices, block_num=block_num, method=method,
                              alpha=lam, beta=beta, gamma=gamma, eta=eta, neigh_size=neigh_size, n_labels=n_labels, label_cost=label_cost, sigma=sigma, warp=warp, dim=dim, beta_c=beta_c,
-                             mean=mean, std=std, emd=emd, reg=reg, itermax=itermax, transport=transport, t_eps=t_eps, t_type=t_type, matching=matching)
-                else:
-                    out, ratio = mixup_graph(out, grad, indices, block_num=block_num, method=method,
-                             alpha=lam, beta=beta, gamma=gamma, eta=eta, neigh_size=neigh_size, n_labels=n_labels, label_cost=label_cost, sigma=sigma, warp=warp, dim=dim, beta_c=beta_c,
-                             mean=mean, std=std, emd=emd, reg=reg, itermax=itermax, transport=transport, t_eps=t_eps, t_type=t_type)
+                             mean=mean, std=std, emd=emd, reg=reg, itermax=itermax, transport=transport, t_eps=t_eps, t_type=t_type, t_size=t_size, 
+                             noise=noise, adv_mask1=adv_mask1, adv_mask2=adv_mask2)
             else: 
                 ratio = torch.ones(out.shape[0], device='cuda')
         elif emd:
@@ -671,11 +667,14 @@ def mixup_box(input1, input2, grad1, grad2, method='random', alpha=0.5):
 from scipy.ndimage.filters import gaussian_filter
 random_state = np.random.RandomState(None)
 
-def mixup_graph(input1, grad1, indices, block_num=2, method='random', alpha=0.5, beta=0., gamma=0., eta=0.2, neigh_size=2, n_labels=2, label_cost='l2', sigma=1.0, warp=0.0, dim=2, beta_c=0.0, mean=None, std=None, emd=False, reg=1e-5, itermax=5, transport=False, t_eps=10.0, t_type='full', matching=False):
-    input2 = input1[indices]
+def mixup_graph(input1, grad1, indices, block_num=2, method='random', alpha=0.5, beta=0., gamma=0., eta=0.2, neigh_size=2, n_labels=2, label_cost='l2', sigma=1.0, warp=0.0, dim=2, beta_c=0.0, mean=None, std=None, emd=False, reg=1e-5, itermax=5, transport=False, t_eps=10.0, t_type='full', t_size=16, noise=None, adv_mask1=0, adv_mask2=0):
+
+    input2 = input1[indices].clone()
+        
     batch_size, _, _, width = input1.shape
     block_size = width // block_num
     neigh_size = min(neigh_size, block_size)
+    t_size = min(t_size, block_size)
 
     if alpha.shape[0] == 1:
         alpha = np.ones([batch_size]) * alpha[0]
@@ -694,8 +693,6 @@ def mixup_graph(input1, grad1, indices, block_num=2, method='random', alpha=0.5,
     elif dim==3:
         mask = np.zeros([batch_size, 3, width, width])
         unary1_torch = grad1_pool / grad1_pool.view(batch_size, -1).sum(1).view(batch_size, 1, 1, 1)
-    if matching: 
-        indices = get_index(make_distance_matrix(unary1_torch))
     input2 = input1[indices]
     
     if warp > 0:
@@ -797,14 +794,34 @@ def mixup_graph(input1, grad1, indices, block_num=2, method='random', alpha=0.5,
         if warp>0:
             mask = F.grid_sample(mask, grid-grid_offset, padding_mode="reflection")
 
+        if adv_mask1 == 1.:
+            input1 = input1 * std + mean + noise
+            input1 = torch.clamp(input1, 0, 1)
+            input1 = (input1 - mean)/std
+        
+        if adv_mask2 == 1.:
+            input2 = input2 * std + mean + noise[indices]
+            input2 = torch.clamp(input2, 0, 1)
+            input2 = (input2 - mean)/std
+
         if transport:
+            if t_size < block_size:
+                t_block_num = width // t_size
+                mask = F.interpolate(mask, size=t_block_num)
+                grad1_pool = F.avg_pool2d(grad1, t_size)
+                unary1_torch = grad1_pool / grad1_pool.view(batch_size, -1).sum(1).view(batch_size, 1, 1)
+                unary2_torch = unary1_torch[indices]
+            else:
+                t_block_num = block_num
+            
 	    # input1
             plan = mask_transport(mask, unary1_torch, eps=t_eps, t_type=t_type)
-            input1 = transport_image(input1, plan, batch_size, block_num, block_size)
+            input1 = transport_image(input1, plan, batch_size, t_block_num, t_size)
 
             # input2
             plan = mask_transport(1-mask, unary2_torch, eps=t_eps, t_type=t_type)
-            input2 = transport_image(input2, plan, batch_size, block_num, block_size)
+            input2 = transport_image(input2, plan, batch_size, t_block_num, t_size)
+
         mask = F.interpolate(mask, size=width)
 
     else:
@@ -813,47 +830,15 @@ def mixup_graph(input1, grad1, indices, block_num=2, method='random', alpha=0.5,
     ratio = torch.tensor(ratio/block_num**2, dtype=torch.float32, device='cuda')
     if dim ==3: 
         ratio /= 3.
-
-    if n_labels > 2 and emd:
-        if itermax > 1:
-            mask_fg=[]
-            mask_size = 16
-
-            unary1 = F.avg_pool2d(grad1, width//mask_size)
-            unary1 = unary1 / unary1.view(batch_size, -1).sum(1).view(batch_size, 1, 1)
-            unary1 = unary1.detach().cpu().numpy()
-            unary2 = np.ones_like(unary1) / mask_size ** 2
-            pw_x_i = np.zeros([mask_size-1, mask_size])
-            pw_y_i = np.zeros([mask_size, mask_size-1])
-
-            for i in range(batch_size):
-                mask_fg.append(graphcut_multi_float(unary2[i], unary1[i], pw_x_i, pw_y_i, alpha=0.6, beta=1.0, eta=0.3, n_labels=2))
-                
-            mask_fg = torch.tensor(mask_fg, dtype=torch.float32, device='cuda').unsqueeze(1)
-            mask_fg = F.interpolate(mask_fg, size=width)
-
-        out = (mask==1).float() * input1 + (mask==0).float() * input2
-        for i in range(1, n_labels-1):
-            w = i/(n_labels-1)
-            if itermax > 1:
-                fg, _ = barycenter_conv2d(mask_fg * input1.clone(), mask_fg[indices] * input2.clone(), reg=reg, numItermax=itermax, weights=torch.ones(input1.size(0), device='cuda') * w, mean=mean, std=std)
-                bg = w * input1 + (1-w) * input2
-                
-                mask_bary = (fg.abs().mean(1, keepdim=True) < 0.3).float()
-                barycenter = fg * (1-mask_bary) + bg * mask_bary
-            else :
-                barycenter, _ = barycenter_conv2d(input1.clone(), input2.clone(), reg=reg, numItermax=itermax, weights=torch.ones(input1.size(0), device='cuda') * w, mean=mean, std=std)
-            
-            out += (mask==w).float() * barycenter
-        return out, ratio
-    if matching:  
-        return mask * input1 + (1-mask) * input2, ratio, indices
-    else:
-        return mask * input1 + (1-mask) * input2, ratio
+        
+    return mask * input1 + (1-mask) * input2, ratio
 
 def mask_transport(mask, grad_pool, eps=0.01, t_type='full'):
     batch_size = mask.shape[0]
     block_num = mask.shape[-1]
+
+    # n_iter = int(np.sqrt(block_num))  
+    n_iter = int(block_num)
     C = cost_matrix_dict[str(block_num)]
     
     if t_type=='full':
@@ -862,7 +847,6 @@ def mask_transport(mask, grad_pool, eps=0.01, t_type='full'):
         z = mask
     
     cost = eps * C - grad_pool.reshape(-1, block_num**2, 1) * z.reshape(-1, 1, block_num**2)
-    n_iter = int(np.sqrt(block_num))    
     
     # row and col
     for _ in range(n_iter):
@@ -883,7 +867,7 @@ def mask_transport(mask, grad_pool, eps=0.01, t_type='full'):
 
 
 def transport_image(img, plan, batch_size, block_num, block_size):
-    input_patch = img.reshape([batch_size, 3, block_num, block_size, img.shape[-1]]).transpose(-2,-1)
+    input_patch = img.reshape([batch_size, 3, block_num, block_size, block_num * block_size]).transpose(-2,-1)
     input_patch = input_patch.reshape([batch_size, 3, block_num, block_num, block_size, block_size]).transpose(-2,-1)
     input_patch = input_patch.reshape([batch_size, 3, block_num**2, block_size, block_size]).permute(0,1,3,4,2).unsqueeze(-1)
 
