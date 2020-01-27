@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import torch.nn.functional as F
 import augmentations
 import gco
+from lapjv import lapjv
 
 class AverageMeter(object):
   """Computes and stores the average and current value"""
@@ -838,25 +839,37 @@ def mask_transport(mask, grad_pool, eps=0.01, t_type='full'):
     n_iter = int(block_num)
     C = cost_matrix_dict[str(block_num)]
     
-    if t_type=='full':
-        z = (mask>0).float()
-    else:
+    if t_type=='half':
         z = mask
+    else: 
+        z = (mask>0).float()
     
     cost = eps * C - grad_pool.reshape(-1, block_num**2, 1) * z.reshape(-1, 1, block_num**2)
     
-    # row and col
-    for _ in range(n_iter):
-        row_best = cost.min(-1)[1]
-        plan = torch.zeros_like(cost).scatter_(-1, row_best.unsqueeze(-1), 1)
+    if t_type=='full' or t_type =='half':
+        # row and col
+        for _ in range(n_iter):
+            row_best = cost.min(-1)[1]
+            plan = torch.zeros_like(cost).scatter_(-1, row_best.unsqueeze(-1), 1)
 
-        # column resolve
-        cost_fight = plan * cost
-        col_best = cost_fight.min(-2)[1]
-        plan_win = torch.zeros_like(cost).scatter_(-2, col_best.unsqueeze(-2), 1) * plan
-        plan_lose = (1-plan_win) * plan
+            # column resolve
+            cost_fight = plan * cost
+            col_best = cost_fight.min(-2)[1]
+            plan_win = torch.zeros_like(cost).scatter_(-2, col_best.unsqueeze(-2), 1) * plan
+            plan_lose = (1-plan_win) * plan
 
         cost += plan_lose
+
+    elif t_type == 'exact':
+        plan_indices = []
+        cost_np = cost.cpu().numpy()
+        for i in range(batch_size):
+            plan_indices.append(torch.tensor(lapjv(cost_np[i])[0], dtype=torch.long, device='cuda'))
+        plan_indices = torch.stack(plan_indices, dim=0)
+        plan_win = torch.zeros_like(cost).scatter_(-1, plan_indices.unsqueeze(-1), 1)
+
+    else:
+        raise AssertionError('Wrong t_type!')
     
     return plan_win
     # plan_move = (plan_win - torch.eye(block_num**2, device='cuda'))>0
