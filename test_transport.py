@@ -1,37 +1,48 @@
 import numpy as np
 import torch
 import itertools
-
+from lapjv import lapjv
 
 def mask_transport(mask, grad_pool, eps=0.01, n_iter=5, t_type='full'):
-    if n_iter is None:
-        n_iter = int(np.sqrt(width))
-
     batch_size = mask.shape[0]
     width = mask.shape[-1]
+
+    if n_iter is None:
+        n_iter = int(width)
+
     C = cost_matrix(width).unsqueeze(0)    
-    if t_type =='full':
-        z = (mask>0).float()
-    else:
+    if t_type =='half':
         z = mask
+    else :
+        z = (mask>0).float()
+
     
     cost = eps * C - grad_pool.reshape(-1, block_num**2, 1) * z.reshape(-1, 1, block_num**2)
     
-    # init
-    for _ in range(n_iter):
-        # row resolve, with tie-breaking
-        row_best = (cost - 1e-10 * cost.min(-2, keepdim=True)[0]).min(-1)[1]
-        plan = torch.zeros_like(cost).scatter_(-1, row_best.unsqueeze(-1), 1)
+    
+    if t_type=='full' or t_type=='half':
+        for _ in range(n_iter):
+            # row resolve, with tie-breaking
+            row_best = (cost - 1e-10 * cost.min(-2, keepdim=True)[0]).min(-1)[1]
+            plan = torch.zeros_like(cost).scatter_(-1, row_best.unsqueeze(-1), 1)
 
-        # column resolve
-        cost_fight = plan * cost
-        col_best = cost_fight.min(-2)[1]
-        plan_win = torch.zeros_like(cost).scatter_(-2, col_best.unsqueeze(-2), 1) * plan
-        plan_lose = (1-plan_win) * plan
+            # column resolve
+            cost_fight = plan * cost
+            col_best = cost_fight.min(-2)[1]
+            plan_win = torch.zeros_like(cost).scatter_(-2, col_best.unsqueeze(-2), 1) * plan
+            plan_lose = (1-plan_win) * plan
 
-        # Note unary and mask are less than 1
-        cost += plan_lose
-        
+            # Note unary and mask are less than 1
+            cost += plan_lose
+ 
+    elif t_type=='exact':
+        plan_indices = []
+        cost_np = cost.cpu().numpy()
+        for i in range(batch_size):
+            plan_indices.append(torch.tensor(lapjv(cost_np[i])[0], dtype=torch.long))
+        plan_indices = torch.stack(plan_indices, dim=0)
+        plan_win = torch.zeros_like(cost).scatter_(-1, plan_indices.unsqueeze(-1), 1)
+ 
     return plan_win
 
 
@@ -52,13 +63,13 @@ def cost_matrix(width=16, dist=2):
 
 
 if __name__=='__main__':
-    block_num = 3
+    block_num = 2
     n_sample = 1000
     eps= 0.2
     C = cost_matrix(block_num).unsqueeze(0)
 
     plan_elm= [row for row in np.eye(block_num**2)]
-    plan_list = [torch.tensor(plan, dtype=torch.float32) for plan in list(itertools.permutations(plan_elm))]
+    plan_list = [torch.tensor(plan, dtype=torch.float32).unsqueeze(0) for plan in list(itertools.permutations(plan_elm))]
 
 
     print('transport algorithm test for {} block_num, {} samples'.format(block_num, n_sample))
@@ -66,10 +77,10 @@ if __name__=='__main__':
     incorrect_elm = 0
     positive = 0
     for i in range(n_sample):
-        mask = torch.tensor(np.random.randint(0,2 ,size=(block_num, block_num)), dtype=torch.float32)
-        unary = torch.tensor(np.random.uniform(size=(block_num, block_num)), dtype=torch.float32)
+        mask = torch.tensor(np.random.randint(0,2 ,size=(block_num, block_num)), dtype=torch.float32).unsqueeze(0)
+        unary = torch.tensor(np.random.uniform(size=(block_num, block_num)), dtype=torch.float32).unsqueeze(0)
 
-        cost = eps * C * mask.reshape(-1, 1, block_num**2) - unary.reshape(-1, block_num**2, 1) * mask.reshape(-1, 1, block_num**2)
+        cost = eps * C - unary.reshape(-1, block_num**2, 1) * mask.reshape(-1, 1, block_num**2)
 
         ### Greedy Search
         ## Note there can be multiple global optima
@@ -90,7 +101,7 @@ if __name__=='__main__':
                     plan_best_list.append(plan * mask.reshape(-1, 1, block_num**2))
 
         ### By our algorithm
-        plan = mask_transport(mask, unary, eps=eps, n_iter=block_num**2)  * mask.reshape(-1, 1, block_num**2)
+        plan = mask_transport(mask, unary, eps=eps, n_iter=block_num**2, t_type='exact')  * mask.reshape(-1, 1, block_num**2)
 
         dist = block_num
         for plan_best in plan_best_list:
@@ -101,7 +112,7 @@ if __name__=='__main__':
         if dist > 0:
             incorrect += 1
         
-        if (i+1)%10==0:
+        if (i+1)%100==0:
             print('(sample ) {}/{}'.format(incorrect, i+1))
             print('(element) {}/{}'.format(incorrect_elm, positive))
 
