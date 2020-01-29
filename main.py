@@ -615,7 +615,7 @@ def test_robust(net, mean, std, log):
 
     # Input Corruption Test
     if args.dataset == 'tiny-imagenet-200':
-        dataset_tinyImagenet_dist_list = glob('/home/janghyun/Codes/Wasserstein_Preprocessor/manifold_mixup/data/tiny-imagenet-200-C/*')
+        dataset_tinyImagenet_dist_list = glob('/data_large/readonly/tiny-imagenet-200-C/*')
 
         for path in dataset_tinyImagenet_dist_list:
             name = os.path.basename(path)
@@ -628,7 +628,7 @@ def test_robust(net, mean, std, log):
                 dataset = dset.ImageFolder(root=path+'/{}'.format(sever), transform=test_transform)
                 testloader = DataLoader(dataset, batch_size=100, num_workers=2, pin_memory=True)
 
-            for batch_idx, (input, target) in enumerate(testloader):
+                for batch_idx, (input, target) in enumerate(testloader):
                     with torch.no_grad():
                         input = input.cuda()
                         target = target.cuda()
