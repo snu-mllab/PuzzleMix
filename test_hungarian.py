@@ -10,6 +10,7 @@ import gco
 from ortools.graph import pywrapgraph
 import copy
 from lapjv import lapjv
+import itertools
 
 class SimpleHungarianSolver:
     def __init__(self, nworkers, ntasks, value=100000):
@@ -227,11 +228,13 @@ if __name__ == '__main__':
     from time import time
 
     block_num_list= [2, 4, 8, 16]
-    print('100 sample test')
+
+    n_samples = 1000
+    print('{} sample test'.format(n_samples))
     for block_num in block_num_list:
         print("\ngraph size: {}x{}".format(block_num, block_num))
+        
         ### unit test
-        n_samples = 100
         np.random.seed(0)
         
         eps = 0.2
@@ -255,9 +258,12 @@ if __name__ == '__main__':
         our_time = time() -s
 
         plan_indices = []
+        plan_id = torch.eye(block_num**2, device='cuda')
+
         s= time()
         for i in range(n_samples):
             plan_indices.append(torch.tensor(lapjv(cost[i].cpu().numpy())[0], dtype=torch.long, device='cuda'))
+
         plan_indices = torch.stack(plan_indices, dim=0)
         plan_hungarian = torch.zeros_like(cost).scatter_(-1, plan_indices.unsqueeze(-1), 1) 
             
@@ -270,8 +276,22 @@ if __name__ == '__main__':
 
         hun_time += time() - s
 
-
+        
+        rel_err = 0
+        random_err_total = 0
+        heuristic_err_total = 0
+        exact_err_total = 0
         for i in range(n_samples):
+            plan_random = plan_id[torch.randperm(plan_id.shape[0])]
+            random_err = ((plan_random * cost[i]).sum() - (plan_hungarian[i] * cost[i]).sum())
+            heuristic_err = (plan[i] * cost[i]).sum() - (plan_hungarian[i] * cost[i]).sum()
+
+            random_err_total += (plan_random * cost[i]).sum()
+            heuristic_err_total += (plan[i] * cost[i]).sum()
+            exact_err_total += (plan_hungarian[i] * cost[i]).sum()
+
+            rel_err += heuristic_err / (random_err + heuristic_err + 1e-8)
+            # print('{:.4f}, {:.4f}, {:.4f}'.format((plan_random * cost[i]).sum(), (plan[i] * cost[i]).sum(), (plan_hungarian[i] * cost[i]).sum()))
             if (plan_hungarian[i] * cost[i]).sum() >= (plan[i] * cost[i]).sum() + 1e-5:
                 print("Cost by Hungarian: ", (plan_hungarian[i] * cost[i]).sum())
                 print("Cost by Ours: ", (plan[i] * cost[i]).sum())
@@ -280,6 +300,11 @@ if __name__ == '__main__':
                 print(cost[i])
 
                 raise AssertionError('Hungarian Error!')
+
+        print('relative error rate : {:7.4f}'.format(rel_err/n_samples))
+        print('random objective    : {:7.4f}'.format(random_err_total/n_samples))
+        print('heuristic objective : {:7.4f}'.format(heuristic_err_total/n_samples))
+        print('exact objective     : {:7.4f}'.format(exact_err_total/n_samples))
 
         print('hungarian time : {:.4f}'.format(hun_time))
         # print('- to cpu       : {:.4f}'.format(to_cpu_time))

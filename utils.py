@@ -802,7 +802,11 @@ def mixup_graph(input1, grad1, indices, block_num=2, method='random', alpha=0.5,
             input2 = (input2 - mean)/std
 
         if transport:
-            if t_size < block_size:
+            if t_size == -1:
+                t_block_num = block_num
+                t_size = block_size
+            elif t_size < block_size:
+                # block_size % t_size should be 0 
                 t_block_num = width // t_size
                 mask = F.interpolate(mask, size=t_block_num)
                 grad1_pool = F.avg_pool2d(grad1, t_size)

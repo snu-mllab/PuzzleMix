@@ -91,7 +91,7 @@ parser.add_argument('--box', type=str2bool, default=False)
 parser.add_argument('--graph', type=str2bool, default=False)
 parser.add_argument('--method', type=str, default='mix', choices=['random', 'cut', 'cut_small', 'paste','mix'])
 parser.add_argument('--block_num', type=int, default=-1)
-parser.add_argument('--neigh_size', type=int, default=16)
+parser.add_argument('--neigh_size', type=int, default=4)
 parser.add_argument('--n_labels', type=int, default=3)
 parser.add_argument('--label_cost', type=str, default='l2')
 
@@ -106,7 +106,7 @@ parser.add_argument('--beta_c', type=float, default=0.0)
 
 parser.add_argument('--transport', type=str2bool, default=True)
 parser.add_argument('--t_eps', type=float, default=0.8)
-parser.add_argument('--t_size', type=int, default=16)
+parser.add_argument('--t_size', type=int, default=-1)
 parser.add_argument('--t_type', type=str, default='full')
 
 parser.add_argument('--adv_eps', type=float, default=8.0, help='attack ball')
