@@ -246,7 +246,7 @@ criterion_batch = nn.CrossEntropyLoss(reduction='none').cuda()
 mse_loss = nn.MSELoss().cuda()
 
 
-def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None):
+def train(train_loader, model, optimizer, epoch, args, log):
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
@@ -271,7 +271,7 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
         unary=None
         noise=None
         adv_mask1 = 0
-        adv_mask2 = 1
+        adv_mask2 = 0
 
         if args.train == 'vanilla':
             input_var, target_var = Variable(input), Variable(target)
@@ -290,11 +290,11 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
 
                 if (adv_mask1 == 1 or adv_mask2 == 1):
                     noise = torch.zeros_like(input).uniform_(-args.adv_eps/255., args.adv_eps/255.)
-                    input_orig = input * std + mean
+                    input_orig = input * args.std + args.mean
                     input_noise = input_orig + noise
                     input_noise = torch.clamp(input_noise, 0, 1)
                     noise = input_noise - input_orig
-                    input_noise = (input_noise - mean)/std
+                    input_noise = (input_noise - args.mean)/args.std
                     input_var = Variable(input_noise, requires_grad=True)
                 else:
                     input_var = Variable(input, requires_grad=True)
@@ -333,18 +333,13 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
             
             input_var, target_var = Variable(input), Variable(target)
             output, reweighted_target = model(input_var, target_var, mixup=True, 
-                    mixup_alpha=args.mixup_alpha, in_batch=args.in_batch, mean=mean, std=std,
-                    box=args.box, graph=args.graph, grad=unary, beta=args.beta, gamma=args.gamma, 
-                    eta=args.eta, neigh_size=args.neigh_size, n_labels=args.n_labels,
-                    transport=args.transport, t_eps=args.t_eps, t_size=args.t_size,
-                    noise=noise, adv_mask1=adv_mask1, adv_mask2=adv_mask2)
+                    args=args, grad=unary, noise=noise, adv_mask1=adv_mask1, adv_mask2=adv_mask2)
 
             loss = bce_loss(softmax(output), reweighted_target)
 
         elif args.train== 'mixup_hidden':
             input_var, target_var = Variable(input), Variable(target)
-            output, reweighted_target = model(input_var,target_var, mixup_hidden=True,
-                    mixup_alpha = args.mixup_alpha, in_batch=args.in_batch, mean=mean, std=std)
+            output, reweighted_target = model(input_var,target_var, mixup_hidden=True, args=args)
             loss = bce_loss(softmax(output), reweighted_target)
         else:
             raise AssertionError('wrong train type!!')
@@ -558,18 +553,18 @@ def main():
 
     if args.dataset == 'tiny-imagenet-200':
         stride = 2 
-        mean = torch.tensor([0.5] * 3, dtype=torch.float32).view(1,3,1,1).cuda()
-        std = torch.tensor([0.5] * 3, dtype=torch.float32).view(1,3,1,1).cuda()
+        args.mean = torch.tensor([0.5] * 3, dtype=torch.float32).view(1,3,1,1).cuda()
+        args.std = torch.tensor([0.5] * 3, dtype=torch.float32).view(1,3,1,1).cuda()
         args.labels_per_class = 500
     elif args.dataset == 'cifar10':
         stride = 1
-        mean = torch.tensor([x / 255 for x in [125.3, 123.0, 113.9]], dtype=torch.float32).view(1,3,1,1).cuda()
-        std = torch.tensor([x / 255 for x in [63.0, 62.1, 66.7]], dtype=torch.float32).view(1,3,1,1).cuda()
+        args.mean = torch.tensor([x / 255 for x in [125.3, 123.0, 113.9]], dtype=torch.float32).view(1,3,1,1).cuda()
+        args.std = torch.tensor([x / 255 for x in [63.0, 62.1, 66.7]], dtype=torch.float32).view(1,3,1,1).cuda()
         args.labels_per_class = 5000
     elif args.dataset == 'cifar100':
         stride = 1
-        mean = torch.tensor([x / 255 for x in [129.3, 124.1, 112.4]], dtype=torch.float32).view(1,3,1,1).cuda()
-        std = torch.tensor([x / 255 for x in [68.2, 65.4, 70.4]], dtype=torch.float32).view(1,3,1,1).cuda()
+        args.mean = torch.tensor([x / 255 for x in [129.3, 124.1, 112.4]], dtype=torch.float32).view(1,3,1,1).cuda()
+        args.std = torch.tensor([x / 255 for x in [68.2, 65.4, 70.4]], dtype=torch.float32).view(1,3,1,1).cuda()
         args.labels_per_class = 500
     else:
         raise AssertionError('Given Dataset is not supported!')
@@ -627,13 +622,13 @@ def main():
                 + ' [Best : Accuracy={:.2f}, Error={:.2f}]'.format(recorder.max_accuracy(False), 100-recorder.max_accuracy(False)), log)
 
         # train for one epoch
-        tr_acc, tr_acc5, tr_los  = train(train_loader, net, optimizer, epoch, args, log, mean=mean, std=std)
+        tr_acc, tr_acc5, tr_los  = train(train_loader, net, optimizer, epoch, args, log)
 
         # evaluate on validation set
         val_acc, val_los = validate(test_loader, net, log)
         if (epoch%50)==0 and args.adv_p > 0:
-            _, _ = validate(test_loader, net, log, fgsm=True, eps=4, mean=mean, std=std)
-            _, _ = validate(test_loader, net, log, fgsm=True, eps=8, mean=mean, std=std)
+            _, _ = validate(test_loader, net, log, fgsm=True, eps=4, mean=args.mean, std=args.std)
+            _, _ = validate(test_loader, net, log, fgsm=True, eps=8, mean=args.mean, std=args.std)
         
         train_loss.append(tr_los)
         train_acc.append(tr_acc)
@@ -677,18 +672,18 @@ def main():
     acc_var = np.maximum(np.max(test_acc[-10:])- np.median(test_acc[-10:]), np.median(test_acc[-10:]) - np.min(test_acc[-10:]))
     print_log("\nfinal 10 epoch acc (median) : {:.2f} (+- {:.2f})".format(np.median(test_acc[-10:]), acc_var), log)
     
-    test_robust(net, mean, std, log)
+    test_robust(net, args.mean, args.std, log)
     # val_acc, val_los = validate(test_loader, net, log, fgsm=True, eps=4, mean=mean, std=std)
     # val_acc, val_los = validate(test_loader, net, log, fgsm=True, eps=8, mean=mean, std=std)
     
     print_log("",log)
-    test_pgd(test_loader, net, log, eps=4, step=4, a_iter=1, rand_init=False, mean=mean, std=std)
-    test_pgd(test_loader, net, log, eps=4, step=1, a_iter=7, rand_init=False, mean=mean, std=std)
-    test_pgd(test_loader, net, log, eps=4, step=1, a_iter=7, rand_init=True, mean=mean, std=std)
+    test_pgd(test_loader, net, log, eps=4, step=4, a_iter=1, rand_init=False, mean=args.mean, std=args.std)
+    test_pgd(test_loader, net, log, eps=4, step=1, a_iter=7, rand_init=False, mean=args.mean, std=args.std)
+    test_pgd(test_loader, net, log, eps=4, step=1, a_iter=7, rand_init=True, mean=args.mean, std=args.std)
 
-    test_pgd(test_loader, net, log, eps=8, step=8, a_iter=1, rand_init=False, mean=mean, std=std)
-    test_pgd(test_loader, net, log, eps=8, step=2, a_iter=7, rand_init=False, mean=mean, std=std)
-    test_pgd(test_loader, net, log, eps=8, step=2, a_iter=7, rand_init=True, mean=mean, std=std)
+    test_pgd(test_loader, net, log, eps=8, step=8, a_iter=1, rand_init=False, mean=args.mean, std=args.std)
+    test_pgd(test_loader, net, log, eps=8, step=2, a_iter=7, rand_init=False, mean=args.mean, std=args.std)
+    test_pgd(test_loader, net, log, eps=8, step=2, a_iter=7, rand_init=True, mean=args.mean, std=args.std)
 
     if not args.log_off:
         log.close()

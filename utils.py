@@ -159,46 +159,49 @@ def nan_recover(tensor, thres=1e100):
     tensor[tensor > thres] = thres
     return tensor
 
-def mixup_process(out, target_reweighted, mixup_alpha=1.0, in_batch=0, hidden=0,
-                  mean=None, std=None,
-                  box=0, graph=0, grad=None, beta=0.0, gamma=0., eta=0.2, neigh_size=2, n_labels=2,
-                  transport=False, t_eps=10.0, t_size=16, noise=None, adv_mask1=0, adv_mask2=0):
+def mixup_process(out, target_reweighted, hidden=0, args=None, grad=None, noise=None, adv_mask1=0, adv_mask2=0):
+    if args is not None:
+        mixup_alpha = args.mixup_alpha
+        in_batch = args.in_batch
+        mean = args.mean
+        std = args.std
+        box = args.box
+        graph = args.box
+        beta = args.beta
+        gamma = args.gamma
+        eta = args.eta
+        neigh_size = args.neigh_size
+        n_labels = args.n_labels
+        transport = args.transport
+        t_eps = args.t_eps
+        t_size = args.t_size
     
     block_num = 2**np.random.randint(1, 5)
-    if in_batch:
-        mix_idx = int(float(out.shape[0]))
-        indices = np.random.permutation(mix_idx)
-
-        out_clean = out[mix_idx:]
-        target_clean = target_reweighted[mix_idx:]
-        out = out[:mix_idx].clone()
-        target_reweighted = target_reweighted[:mix_idx]
-    else :
-        indices = np.random.permutation(out.size(0))
-
+    indices = np.random.permutation(out.size(0))
+    
     lam = get_lambda(mixup_alpha)
     lam = np.array([lam]).astype('float32')
-
-    if box:
-        out, ratio = mixup_box(out, out[indices], alpha=lam[0])
-    elif graph:
-        if block_num > 1:
-            out, ratio = mixup_graph(out, grad, indices, block_num=block_num,
-                             alpha=lam, beta=beta, gamma=gamma, eta=eta, neigh_size=neigh_size, n_labels=n_labels,
-                             mean=mean, std=std, transport=transport, t_eps=t_eps, t_size=t_size, 
-                             noise=noise, adv_mask1=adv_mask1, adv_mask2=adv_mask2)
-        else: 
-            ratio = torch.ones(out.shape[0], device='cuda')
-    else:
+    
+    if hidden:
         out = out*lam[0] + out[indices]*(1-lam[0])
         ratio = torch.ones(out.shape[0], device='cuda') * lam[0]
+    else:
+        if box:
+            out, ratio = mixup_box(out, out[indices], alpha=lam[0])
+        elif graph:
+            if block_num > 1:
+                out, ratio = mixup_graph(out, grad, indices, block_num=block_num,
+                                 alpha=lam, beta=beta, gamma=gamma, eta=eta, neigh_size=neigh_size, n_labels=n_labels,
+                                 mean=mean, std=std, transport=transport, t_eps=t_eps, t_size=t_size, 
+                                 noise=noise, adv_mask1=adv_mask1, adv_mask2=adv_mask2)
+            else: 
+                ratio = torch.ones(out.shape[0], device='cuda')
+        else:
+            out = out*lam[0] + out[indices]*(1-lam[0])
+            ratio = torch.ones(out.shape[0], device='cuda') * lam[0]
 
     target_shuffled_onehot = target_reweighted[indices]
     target_reweighted = target_reweighted * ratio.unsqueeze(-1) + target_shuffled_onehot * (1 - ratio.unsqueeze(-1))
-    
-    if in_batch:
-        out = torch.cat([out, out_clean], dim=0)
-        target_reweighted = torch.cat([target_reweighted, target_clean], dim=0)
     
     return out, target_reweighted
 
@@ -229,63 +232,6 @@ def get_lambda(alpha=1.0, alpha2=None):
 
   
 '''code for graphmix'''
-def get_images_edges_cvh(channel, height, width):
-    idxs = np.arange(channel * height * width).reshape(channel, height, width)
-    c_edges_from = np.r_[idxs[:-1, :, :], idxs[:1, :, :]].flatten()
-    c_edges_to = np.r_[idxs[1:, :, :], idxs[-1:, :, :]].flatten()
-
-    v_edges_from = idxs[:, :-1, :].flatten()
-    v_edges_to = idxs[:, 1:, :].flatten()
-
-    h_edges_from = idxs[:, :, :-1].flatten()
-    h_edges_to = idxs[:, :, 1:].flatten()
-
-    return c_edges_from, v_edges_from, h_edges_from, c_edges_to, v_edges_to, h_edges_to
-
-
-_int_types = [np.int, np.intc, np.int32, np.int64, np.longlong]
-_float_types = [np.float, np.float32, np.float64, np.float128]
-
-
-def cut_3d_graph(unary_cost, pairwise_cost, cost_v, cost_h, cost_c, n_iter=-1, algorithm='swap'):
-    assert len(unary_cost.shape)==4, "unary_cost dimension should be 4! for 3d graph model."
-    energy_is_float = (unary_cost.dtype in _float_types) or \
-                      (pairwise_cost.dtype in _float_types) or \
-                      (cost_v.dtype in _float_types) or \
-                      (cost_h.dtype in _float_types)
-
-    channel, height, width, n_labels = unary_cost.shape
-
-    gc = gco.GCO()
-    gc.create_general_graph(channel * height * width, n_labels, energy_is_float)
-    gc.set_data_cost(unary_cost.reshape([channel * height * width, n_labels]))
-
-    c_edges_from, v_edges_from, h_edges_from, c_edges_to, v_edges_to, h_edges_to = get_images_edges_cvh(channel, height, width)
-    v_edges_w = cost_v.flatten()
-    assert len(v_edges_from) == len(v_edges_w), 'different sizes of edges %i and weights %i'% (len(v_edges_from), len(v_edges_w))
-    h_edges_w = cost_h.flatten()
-    assert len(h_edges_from) == len(h_edges_w), 'different sizes of edges %i and weights %i' % (len(h_edges_from), len(h_edges_w))
-    c_edges_w = cost_c.flatten()
-    assert len(c_edges_from) == len(c_edges_w), 'different sizes of edges %i and weights %i'% (len(c_edges_from), len(c_edges_w))
-
-    edges_from = np.r_[c_edges_from, v_edges_from, h_edges_from]
-    edges_to = np.r_[c_edges_to, v_edges_to, h_edges_to]
-    edges_w = np.r_[c_edges_w, v_edges_w, h_edges_w]
-
-    gc.set_all_neighbors(edges_from, edges_to, edges_w)
-    gc.set_smooth_cost(pairwise_cost)
-
-    if algorithm == 'expansion':
-        gc.expansion(n_iter)
-    else:
-        gc.swap(n_iter)
-
-    labels = gc.get_labels()
-    gc.destroy_graph()
-
-    return labels
-
-
 def graphcut_multi(unary1, unary2, pw_x, pw_y, alpha, beta, eta, n_labels=2):
     block_num = unary1.shape[0]
     

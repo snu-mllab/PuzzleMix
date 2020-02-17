@@ -79,10 +79,7 @@ class Wide_ResNet(nn.Module):
         return nn.Sequential(*layers)
     
 
-    def forward(self, x, target= None, mixup=False, mixup_hidden=False, mixup_alpha=None, 
-                in_batch=False, mean=None, std=None, box=False, graph=False, grad=None, 
-                beta=0.0, gamma=0.0, eta=0.2, neigh_size=2, n_labels=2,
-                transport=False, t_eps=10.0, t_size=16, noise=None, adv_mask1=0, adv_mask2=0):
+    def forward(self, x, target= None, mixup=False, mixup_hidden=False, args = None, grad=None, noise=None, adv_mask1=0, adv_mask2=0):
     
         if mixup_hidden:
             layer_mix = random.randint(0,2)
@@ -97,28 +94,22 @@ class Wide_ResNet(nn.Module):
             target_reweighted = to_one_hot(target,self.num_classes)
         
         if layer_mix == 0: 
-            out, target_reweighted = mixup_process(out, target_reweighted, mixup_alpha=mixup_alpha, loss_batch=loss_batch, p=p, in_batch=in_batch, mean=mean, std=std,
-                    box=box, graph=graph, grad=grad,
-                    beta=beta, gamma=gamma, eta=eta, neigh_size=neigh_size, n_labels=n_labels,
-                    transport=transport, t_eps=t_eps, t_type=t_type, t_size=t_size, noise=noise, adv_mask1=adv_mask1, adv_mask2=adv_mask2)
+            out, target_reweighted = mixup_process(out, target_reweighted, args=args, grad=grad, noise=noise, adv_mask1=adv_mask1, adv_mask2=adv_mask2)
 
         out = self.conv1(out)
         out = self.layer1(out)
         
         if layer_mix == 1:
-            out, target_reweighted = mixup_process(out, target_reweighted, mixup_alpha=mixup_alpha, in_batch=in_batch, hidden=True, mean=mean, std=std,
-                    box=box, graph=graph, grad=grad, beta=beta)
+            out, target_reweighted = mixup_process(out, target_reweighted, args=args, hidden=True)
 
         out = self.layer2(out)
 
         if layer_mix == 2:
-            out, target_reweighted = mixup_process(out, target_reweighted, mixup_alpha=mixup_alpha, in_batch=in_batch, hidden=True, mean=mean, std=std,
-                    box=box, graph=graph, grad=grad, beta=beta)
-
+            out, target_reweighted = mixup_process(out, target_reweighted, args=args, hidden=True)
         out = self.layer3(out)
-        if  layer_mix == 3:
-            out, target_reweighted = mixup_process(out, target_reweighted, mixup_alpha=mixup_alpha, in_batch=in_batch, hidden=True, mean=mean, std=std,
-                    box=box, graph=graph, grad=grad, beta=beta)
+        
+        if layer_mix == 3:
+            out, target_reweighted = mixup_process(out, target_reweighted, args=args, hidden=True)
 
         out = act(self.bn1(out))
         out = F.avg_pool2d(out, 8)
