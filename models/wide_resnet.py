@@ -10,7 +10,6 @@ import numpy as np
 import random
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from utils import to_one_hot, mixup_process, get_lambda
-from load_data import per_image_standardization
 
 act = torch.nn.ReLU()
 
@@ -50,10 +49,9 @@ class wide_basic(nn.Module):
 
 class Wide_ResNet(nn.Module):
     
-    def __init__(self, depth, widen_factor, num_classes, per_img_std= False, stride = 1):
+    def __init__(self, depth, widen_factor, num_classes, stride = 1):
         super(Wide_ResNet, self).__init__()
         self.num_classes = num_classes
-        self.per_img_std = per_img_std
         self.in_planes = 16
 
         assert ((depth-4)%6 ==0), 'Wide-resnet_v2 depth should be 6n+4'
@@ -81,14 +79,11 @@ class Wide_ResNet(nn.Module):
         return nn.Sequential(*layers)
     
 
-    def forward(self, x, target= None, mixup=False, mixup_hidden=False, mixup_alpha=None, loss_batch=None, in_batch=False, p=1.0,
-                emd=False, proximal=True, reg=1e-5, itermax=10, label_inter=False, mean=None, std=None,
-                box=False, graph=False, method='random', grad=None, block_num=32, beta=0.0, gamma=0., eta=0.2, neigh_size=2, n_labels=2, label_cost='l2',sigma=1.0, warp=0.0, dim=2, beta_c=0.0,
-                transport=False, t_eps=10.0, t_type='full', t_size=16, noise=None, adv_mask1=0, adv_mask2=0):
+    def forward(self, x, target= None, mixup=False, mixup_hidden=False, mixup_alpha=None, 
+                in_batch=False, mean=None, std=None, box=False, graph=False, grad=None, 
+                beta=0.0, gamma=0.0, eta=0.2, neigh_size=2, n_labels=2,
+                transport=False, t_eps=10.0, t_size=16, noise=None, adv_mask1=0, adv_mask2=0):
     
-        if self.per_img_std:
-            x = per_image_standardization(x)
-        
         if mixup_hidden:
             layer_mix = random.randint(0,2)
         elif mixup:
@@ -102,32 +97,28 @@ class Wide_ResNet(nn.Module):
             target_reweighted = to_one_hot(target,self.num_classes)
         
         if layer_mix == 0: 
-            out, target_reweighted = mixup_process(out, target_reweighted, mixup_alpha=mixup_alpha, loss_batch=loss_batch, p=p, in_batch=in_batch, 
-                    emd=emd, proximal=proximal, reg=reg, itermax=itermax, label_inter=label_inter, mean=mean, std=std,
-                    box=box, graph=graph, method=method, grad=grad, block_num=block_num,
-                    beta=beta, gamma=gamma, eta=eta, neigh_size=neigh_size, n_labels=n_labels, label_cost=label_cost, sigma=sigma, warp=warp, dim=dim, beta_c=beta_c,
+            out, target_reweighted = mixup_process(out, target_reweighted, mixup_alpha=mixup_alpha, loss_batch=loss_batch, p=p, in_batch=in_batch, mean=mean, std=std,
+                    box=box, graph=graph, grad=grad,
+                    beta=beta, gamma=gamma, eta=eta, neigh_size=neigh_size, n_labels=n_labels,
                     transport=transport, t_eps=t_eps, t_type=t_type, t_size=t_size, noise=noise, adv_mask1=adv_mask1, adv_mask2=adv_mask2)
 
         out = self.conv1(out)
         out = self.layer1(out)
         
         if layer_mix == 1:
-            out, target_reweighted = mixup_process(out, target_reweighted, mixup_alpha=mixup_alpha, loss_batch=loss_batch, p=p, in_batch=in_batch, hidden=True,
-                    emd=emd, proximal=proximal, reg=reg, itermax=itermax, label_inter=label_inter, mean=mean, std=std,
-                    box=box, graph=graph, method=method, grad=grad, block_num=block_num, beta=beta)
+            out, target_reweighted = mixup_process(out, target_reweighted, mixup_alpha=mixup_alpha, in_batch=in_batch, hidden=True, mean=mean, std=std,
+                    box=box, graph=graph, grad=grad, beta=beta)
 
         out = self.layer2(out)
 
         if layer_mix == 2:
-            out, target_reweighted = mixup_process(out, target_reweighted, mixup_alpha=mixup_alpha, loss_batch=loss_batch, p=p, in_batch=in_batch, hidden=True,
-                    emd=emd, proximal=proximal, reg=reg, itermax=itermax, label_inter=label_inter, mean=mean, std=std,
-                    box=box, graph=graph, method=method, grad=grad, block_num=block_num, beta=beta)
+            out, target_reweighted = mixup_process(out, target_reweighted, mixup_alpha=mixup_alpha, in_batch=in_batch, hidden=True, mean=mean, std=std,
+                    box=box, graph=graph, grad=grad, beta=beta)
 
         out = self.layer3(out)
         if  layer_mix == 3:
-            out, target_reweighted = mixup_process(out, target_reweighted, mixup_alpha=mixup_alpha, loss_batch=loss_batch, p=p, in_batch=in_batch, hidden=True,
-                    emd=emd, proximal=proximal, reg=reg, itermax=itermax, label_inter=label_inter, mean=mean, std=std,
-                    box=box, graph=graph, method=method, grad=grad, block_num=block_num, beta=beta)
+            out, target_reweighted = mixup_process(out, target_reweighted, mixup_alpha=mixup_alpha, in_batch=in_batch, hidden=True, mean=mean, std=std,
+                    box=box, graph=graph, grad=grad, beta=beta)
 
         out = act(self.bn1(out))
         out = F.avg_pool2d(out, 8)
@@ -141,14 +132,14 @@ class Wide_ResNet(nn.Module):
             return out
         
         
-def wrn28_10(num_classes=10, dropout = False, per_img_std = False, stride = 1):
+def wrn28_10(num_classes=10, dropout = False, stride = 1):
     #print ('this')
-    model = Wide_ResNet(depth=28, widen_factor=10, num_classes=num_classes, per_img_std = per_img_std, stride = stride)
+    model = Wide_ResNet(depth=28, widen_factor=10, num_classes=num_classes, stride = stride)
     return model
 
-def wrn28_2(num_classes=10, dropout = False, per_img_std = False, stride = 1):
+def wrn28_2(num_classes=10, dropout = False, stride = 1):
     #print ('this')
-    model = Wide_ResNet(depth =28, widen_factor =2, num_classes = num_classes, per_img_std = per_img_std, stride = stride)
+    model = Wide_ResNet(depth =28, widen_factor =2, num_classes = num_classes, stride = stride)
     return model
 
 

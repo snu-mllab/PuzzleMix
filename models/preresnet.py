@@ -7,7 +7,6 @@ import sys,os
 import numpy as np
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from utils import to_one_hot, mixup_process, get_lambda
-from load_data import per_image_standardization
 import random
 
 class PreActBlock(nn.Module):
@@ -64,11 +63,10 @@ class PreActBottleneck(nn.Module):
 
 
 class PreActResNet(nn.Module):
-    def __init__(self, block, num_blocks, initial_channels, num_classes,  per_img_std= False, stride=1):
+    def __init__(self, block, num_blocks, initial_channels, num_classes, stride=1):
         super(PreActResNet, self).__init__()
         self.in_planes = initial_channels
         self.num_classes = num_classes
-        self.per_img_std = per_img_std
         #import pdb; pdb.set_trace()
         self.conv1 = nn.Conv2d(3, initial_channels, kernel_size=3, stride=stride, padding=1, bias=False)
         self.layer1 = self._make_layer(block, initial_channels, num_blocks[0], stride=1)
@@ -98,13 +96,9 @@ class PreActResNet(nn.Module):
         out = self.layer2(out)
         return out
 
-    def forward(self, x, target= None, mixup=False, mixup_hidden=False, mixup_alpha=None, loss_batch=None, in_batch=False, p=1.0,
-                emd=False, proximal=True, reg=1e-5, itermax=10, label_inter=False, mean=None, std=None,
-                box=False, graph=False, method='random', grad=None, block_num=32, beta=0.0, gamma=0., eta=0.2, neigh_size=2, n_labels=2, label_cost='l2',sigma=1.0, warp=0.0, dim=2, beta_c=0.0,
-                transport=False, t_eps=10.0, t_type='full', t_size=16, noise=None, adv_mask1=0, adv_mask2=0):
-        #import pdb; pdb.set_trace()
-        if self.per_img_std:
-            x = per_image_standardization(x)
+    def forward(self, x, target= None, mixup=False, mixup_hidden=False, mixup_alpha=None, in_batch=False, mean=None, std=None,
+                box=False, graph=False, grad=None, beta=0.0, gamma=0., eta=0.2, neigh_size=2, n_labels=2,
+                transport=False, t_eps=10.0, t_size=16, noise=None, adv_mask1=0, adv_mask2=0):
         
         if mixup_hidden:
             layer_mix = random.randint(0,2)
@@ -119,31 +113,29 @@ class PreActResNet(nn.Module):
             target_reweighted = to_one_hot(target,self.num_classes)
         
         if layer_mix == 0:
-            out, target_reweighted = mixup_process(out, target_reweighted, mixup_alpha=mixup_alpha, loss_batch=loss_batch, p=p, in_batch=in_batch, 
-                    emd=emd, proximal=proximal, reg=reg, itermax=itermax, label_inter=label_inter, mean=mean, std=std,
-                    box=box, graph=graph, method=method, grad=grad, block_num=block_num,
-                    beta=beta, gamma=gamma, eta=eta, neigh_size=neigh_size, n_labels=n_labels, label_cost=label_cost, sigma=sigma, warp=warp, dim=dim, beta_c=beta_c,
-                    transport=transport, t_eps=t_eps, t_type=t_type, t_size=t_size, noise=noise, adv_mask1=adv_mask1, adv_mask2=adv_mask2)
+            out, target_reweighted = mixup_process(out, target_reweighted, mixup_alpha=mixup_alpha,
+                    in_batch=in_batch, mean=mean, std=std, box=box, graph=graph, grad=grad,
+                    beta=beta, gamma=gamma, eta=eta, neigh_size=neigh_size, n_labels=n_labels,
+                    transport=transport, t_eps=t_eps, t_size=t_size, noise=noise, adv_mask1=adv_mask1, adv_mask2=adv_mask2)
             
         out = self.conv1(out)
         out = self.layer1(out)
 
         if layer_mix == 1:
-            out, target_reweighted = mixup_process(out, target_reweighted, mixup_alpha=mixup_alpha, loss_batch=loss_batch, p=p, in_batch=in_batch, hidden=True,
-                    emd=emd, proximal=proximal, reg=reg, itermax=itermax, label_inter=label_inter, mean=mean, std=std,
-                    box=box, graph=graph, method=method, grad=grad, block_num=block_num, beta=beta, gamma=gamma, neigh_size=neigh_size, n_labels=n_labels)
+            out, target_reweighted = mixup_process(out, target_reweighted, mixup_alpha=mixup_alpha,
+                    in_batch=in_batch, hidden=True, mean=mean, std=std, box=box, graph=graph, 
+                    grad=grad, beta=beta, gamma=gamma, neigh_size=neigh_size, n_labels=n_labels)
 
         out = self.layer2(out)
         if layer_mix == 2:
-             out, target_reweighted = mixup_process(out, target_reweighted, mixup_alpha=mixup_alpha, loss_batch=loss_batch, p=p, in_batch=in_batch, hidden=True,
-                    emd=emd, proximal=proximal, reg=reg, itermax=itermax, label_inter=label_inter, mean=mean, std=std,
-                    box=box, graph=graph, method=method, grad=grad, block_num=block_num, beta=beta, gamma=gamma, neigh_size=neigh_size, n_labels=n_labels)
+             out, target_reweighted = mixup_process(out, target_reweighted, mixup_alpha=mixup_alpha,
+                     in_batch=in_batch, hidden=True, mean=mean, std=std, box=box, graph=graph,
+                     grad=grad, beta=beta, gamma=gamma, neigh_size=neigh_size, n_labels=n_labels)
 
         out = self.layer3(out)
         if  layer_mix == 3:
-            out, target_reweighted = mixup_process(out, target_reweighted, mixup_alpha=mixup_alpha, loss_batch=loss_batch, p=p, in_batch=in_batch, hidden=True,
-                    emd=emd, proximal=proximal, reg=reg, itermax=itermax, label_inter=label_inter, mean=mean, std=std,
-                    box=box, graph=graph, method=method, grad=grad, block_num=block_num, beta=beta, gamma=gamma, neigh_size=neigh_size, n_labels=n_labels)
+            out, target_reweighted = mixup_process(out, target_reweighted, mixup_alpha=mixup_alpha, in_batch=in_batch, hidden=True, mean=mean, std=std,
+                    box=box, graph=graph, grad=grad, beta=beta, gamma=gamma, neigh_size=neigh_size, n_labels=n_labels)
 
         out = self.layer4(out)
         out = F.avg_pool2d(out, 4)
@@ -156,20 +148,20 @@ class PreActResNet(nn.Module):
             return out
 
 
-def preactresnet18(num_classes=10, dropout = False,  per_img_std = False, stride=1):
-    return PreActResNet(PreActBlock, [2,2,2,2], 64, num_classes,  per_img_std, stride= stride)
+def preactresnet18(num_classes=10, dropout = False, stride=1):
+    return PreActResNet(PreActBlock, [2,2,2,2], 64, num_classes, stride= stride)
 
-def preactresnet34(num_classes=10, dropout = False,  per_img_std = False, stride=1):
-    return PreActResNet(PreActBlock, [3,4,6,3], 64, num_classes,  per_img_std, stride= stride)
+def preactresnet34(num_classes=10, dropout = False, stride=1):
+    return PreActResNet(PreActBlock, [3,4,6,3], 64, num_classes, stride= stride)
 
-def preactresnet50(num_classes=10, dropout = False,  per_img_std = False, stride=1):
-    return PreActResNet(PreActBottleneck, [3,4,6,3], 64, num_classes,  per_img_std, stride= stride)
+def preactresnet50(num_classes=10, dropout = False, stride=1):
+    return PreActResNet(PreActBottleneck, [3,4,6,3], 64, num_classes, stride= stride)
 
-def preactresnet101(num_classes=10, dropout = False,  per_img_std = False, stride=1):
-    return PreActResNet(PreActBottleneck, [3,4,23,3], 64, num_classes, per_img_std, stride= stride)
+def preactresnet101(num_classes=10, dropout = False, stride=1):
+    return PreActResNet(PreActBottleneck, [3,4,23,3], 64, num_classes, stride= stride)
 
-def preactresnet152(num_classes=10, dropout = False,  per_img_std = False, stride=1):
-    return PreActResNet(PreActBottleneck, [3,8,36,3], 64, num_classes, per_img_std, stride= stride)
+def preactresnet152(num_classes=10, dropout = False, stride=1):
+    return PreActResNet(PreActBottleneck, [3,8,36,3], 64, num_classes, stride= stride)
 
 def test():
     net = PreActResNet152(True,10)
