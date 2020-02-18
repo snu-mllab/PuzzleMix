@@ -75,7 +75,7 @@ python main.py --dataset cifar100 --data_dir [data_path] --root_dir [save_path] 
 For **WRN28_10 with 400 epoch**, we need to change ```--arch wrn28_10```, ```--epochs 400```, and ```--schedule 200 300```. For **WRN28_10 with 200 epoch**, we set ```--epochs 200```, ```--schedule 120 170```, and ```--learning_rate 0.2```.
 
 
-
+---------------------
 ### Tiny-Imagenet-200
 
 #### Download dataset
