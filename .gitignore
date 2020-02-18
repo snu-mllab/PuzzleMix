@@ -5,6 +5,7 @@
 */*.swp
 */*.pyc
 !models/*
+models/*.pyc
 !unit_test/*
 !checkpoint/*
 saliency.py
