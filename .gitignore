@@ -5,6 +5,5 @@
 */*.swp
 */*.pyc
 !models/
-!imagenet/
 saliency.py
-
+!imagenet/*

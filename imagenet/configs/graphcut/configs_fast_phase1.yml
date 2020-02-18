@@ -1,0 +1,55 @@
+TRAIN:
+    
+    # Architecture name, see pytorch models package for
+    # a list of possible architectures
+    arch: 'resnet50'
+
+
+    # SGD paramters
+    lr: 0.1
+    momentum: 0.9
+    weight_decay: 0.0001
+
+    # Print frequency, is used for both training and testing
+    print_freq: 100
+
+    # Dataset mean and std used for data normalization
+    mean: !!python/tuple [0.485, 0.456, 0.406]
+    std: !!python/tuple [0.229, 0.224, 0.225]
+
+    # Starting epoch (interpret as multiplied by n_repeats)
+    start_epoch: 0
+
+    # Number of training epochs
+    epochs: 15
+
+    lr_epochs: !!python/tuple [0,8,15]
+    lr_values: !!python/tuple [0.5,1,0.125]
+
+    clean_lam: 1
+
+    # Methods to train
+    alpha: 1
+    beta: 1.5
+    eps: 0.8
+    eta: 0.20
+
+DATA:
+    # Number of data workers
+    workers: 10
+
+    # Color value range
+    max_color_value: 255.0
+
+    # Image Size
+    img_size: 0
+
+    # Training batch size
+    batch_size: 1024
+
+    # Crop Size for data augmentation
+    crop_size: 128
+    
+    # Min-scale for random resized crop
+    min_scale: 0.08
+
