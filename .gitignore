@@ -4,5 +4,9 @@
 *.swp
 */*.swp
 */*.pyc
-!models/
+!models/*
+models/*.pyc
+!unit_test/*
+!checkpoint/*
+saliency.py
 !imagenet/*
