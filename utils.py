@@ -733,11 +733,6 @@ def mixup_graph(input1, grad1, indices, block_num=2, method='random', alpha=0.5,
 
         k = block_size//neigh_size
 
-        # pw_x[:, 0, 0], pw_y[:, 0, 0] = neigh_penalty(input1_pool, input1_pool, k, dim=dim)
-        # pw_x[:, 0, 1], pw_y[:, 0, 1] = neigh_penalty(input1_pool, input2_pool, k, dim=dim)
-        # pw_x[:, 1, 0], pw_y[:, 1, 0] = neigh_penalty(input2_pool, input1_pool, k, dim=dim)
-        # pw_x[:, 1, 1], pw_y[:, 1, 1] = neigh_penalty(input2_pool, input2_pool, k, dim=dim)
-
         pw_x[:, 0, 0], pw_y[:, 0, 0] = neigh_penalty(input2_pool, input2_pool, k, dim=dim)
         pw_x[:, 0, 1], pw_y[:, 0, 1] = neigh_penalty(input2_pool, input1_pool, k, dim=dim)
         pw_x[:, 1, 0], pw_y[:, 1, 0] = neigh_penalty(input1_pool, input2_pool, k, dim=dim)

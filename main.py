@@ -378,9 +378,12 @@ def train(train_loader, model, optimizer, epoch, args, log, mean=None, std=None)
 
         elif (args.train == 'vanilla') or (epoch < args.delay):
             input_var, target_var = Variable(input), Variable(target)
-
             output, reweighted_target = model(input_var, target_var)
-            loss = bce_loss(softmax(output), reweighted_target)
+
+            if args.add_name == 'ce':
+                loss = criterion(output, target)
+            else:
+                loss = bce_loss(softmax(output), reweighted_target)
 
         elif args.train == 'mixup':
             if args.graph:
@@ -574,6 +577,7 @@ def test_pgd(val_loader, model, log, eps=8, step=8, a_iter=1, rand_init=False, m
     prec1_total = [0] * a_iter
     prec5_total = [0] * a_iter
     print("")
+    model.eval()
     for batch_idx, (input, target) in enumerate(val_loader):
         input_clean = input.cuda() * std + mean
         target = target.cuda()

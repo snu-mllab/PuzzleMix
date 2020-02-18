@@ -15,6 +15,7 @@ from torch.autograd import Variable
 import torchvision.datasets as dset
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
+from advertorch.attacks import LinfPGDAttack
 
 from utils import *
 import models
@@ -39,6 +40,7 @@ parser.add_argument('--dataset', type=str, default='tiny-imagenet-200', choices=
 parser.add_argument('--arch', metavar='ARCH', default='preactresnet18', choices=model_names, help='model architecture: ' + ' | '.join(model_names) + ' (default: preresnet18)')
 parser.add_argument('--ckpt', default='', type=str, help='path to latest checkpoint (default: none)')
 parser.add_argument('--best', action='store_true')
+parser.add_argument('--bce', action='store_true')
 args = parser.parse_args()
 
 cudnn.benchmark = True
@@ -59,9 +61,12 @@ def accuracy(output, target, topk=(1,)):
     return res
 
 
-bce_loss = nn.BCELoss().cuda()
+if args.bce:
+    criterion = nn.BCELoss().cuda()
+else: 
+    criterion = nn.CrossEntropyLoss().cuda()
+
 softmax = nn.Softmax(dim=1).cuda()
-criterion = nn.CrossEntropyLoss().cuda()
 mse_loss = nn.MSELoss().cuda()
 
 
@@ -127,8 +132,54 @@ print("clean: {:.2f}".format(prec1_total/100))
 eps_list = [4, 8]
 a_iter = 7
 step_list = [2,4,8]
-param_set = [(4,1,7, False), (4,1,7, True), (4,4,1,False), (8,2,7,False), (8,2,7,True), (8,8,1,False)]
+param_set = [(8,8,7, True), (8,2,7,True), (8,2,7,False), (8,8,1,False), (4,4,7, True), (4,2,7,True), (4,2,7,False), (4,4,1,False)]
+param_set = [(4,4,7, True), (4,2,7,True), (4,2,7,False), (8,8,7, True), (8,2,7,True), (8,2,7,False)]
 
+
+param_set = [(8,2,20,True), (4,2,20,True)]
+
+'''
+class ModelWrapper(nn.Module):
+  def __init__(self, model, mean, std):
+    super(ModelWrapper, self).__init__()
+    self.model = model
+    self.mean = mean
+    self.std = std
+  def forward(self, x):
+    return self.model(self.normalize(x))
+  def normalize(self, x):
+    return (x - self.mean) / self.std
+
+
+net_norm = ModelWrapper(net, mean, std)
+for eps, step, a_iter, random_init in param_set:
+    print("")
+    prec1_total = [0] * a_iter
+    prec5_total = [0] * a_iter
+
+   
+    for batch_idx, (input, target) in enumerate(testloader):
+        input_clean = input.cuda()
+        target = target.cuda()
+        input = input_clean.detach().clone()
+        
+        for i in range(a_iter):
+            adversary = LinfPGDAttack(
+                          net_norm, loss_fn=criterion, eps=eps/255.,
+                          nb_iter=i+1, eps_iter=step/255., rand_init=random_init, clip_min=0.0, clip_max=1.0,
+                          targeted=False)
+
+            adv_untargeted = adversary.perturb(input_clean, target)
+
+            output = net_norm(adv_untargeted)
+            prec1, prec5 = accuracy(output, target, topk=(1,5))
+            prec1_total[i] += prec1.item()
+                   
+    if random_init:
+        print('PGD')
+    for i in range(a_iter):
+        print("attack (eps {}, step {}, iter: {}): {:.2f}".format(eps, step, i+1, prec1_total[i]/100))
+'''
 
 for eps, step, a_iter, random_init in param_set:
     print("")
@@ -139,6 +190,7 @@ for eps, step, a_iter, random_init in param_set:
         target = target.cuda()
         input = input_clean.detach().clone()
         
+
         if random_init:
             noise = torch.zeros_like(input).uniform_(-eps/255., eps/255.)  
             input = torch.clamp(input + noise, 0, 1)
@@ -147,8 +199,12 @@ for eps, step, a_iter, random_init in param_set:
             input_var = Variable(input, requires_grad=True)
         
             optimizer_input = torch.optim.SGD([input_var], lr=0.1)
-            output = net((input_var - mean) /std)
-            loss = criterion(output, target)
+            if args.bce:
+                output, reweighted_target = net((input_var - mean) /std, target)
+                loss = criterion(softmax(output), reweighted_target)
+            else:
+                output = net((input_var - mean) /std)
+                loss = criterion(output, target)
             optimizer_input.zero_grad()
             loss.backward()
             
@@ -166,7 +222,6 @@ for eps, step, a_iter, random_init in param_set:
             output = net((input - mean)/std)
             prec1, prec5 = accuracy(output, target, topk=(1,5))
             prec1_total[-1] += prec1.item()
-            prec5_total[-1] += prec5.item()
                    
     if random_init:
         print('PGD')

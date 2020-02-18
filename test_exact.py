@@ -65,24 +65,21 @@ def cost_matrix(width=16, dist=2):
 if __name__=='__main__':
     block_num = 2
     n_sample = 1000
-    eps= 0.2
+    eps= 0.5
     C = cost_matrix(block_num).unsqueeze(0)
 
     plan_elm= [row for row in np.eye(block_num**2)]
     plan_list = [torch.tensor(plan, dtype=torch.float32).unsqueeze(0) for plan in list(itertools.permutations(plan_elm))]
 
-
-    print('transport algorithm test for {} block_num, {} samples'.format(block_num, n_sample))
+    np.random.seed(0)
+    print('transport algorithm test for {}x{} plan, {} samples'.format(block_num**2, block_num**2, n_sample))
     incorrect = 0
-    incorrect_elm = 0
-    positive = 0
     for i in range(n_sample):
         mask = torch.tensor(np.random.randint(0,2 ,size=(block_num, block_num)), dtype=torch.float32).unsqueeze(0)
         unary = torch.tensor(np.random.uniform(size=(block_num, block_num)), dtype=torch.float32).unsqueeze(0)
-
         cost = eps * C - unary.reshape(-1, block_num**2, 1) * mask.reshape(-1, 1, block_num**2)
 
-        ### Greedy Search
+        ### Brute-Force Search
         ## Note there can be multiple global optima
         plan_best_list = []
         obj_best = 0
@@ -90,32 +87,23 @@ if __name__=='__main__':
             obj = torch.sum(plan * cost)
             if obj < obj_best:
                 obj_best = obj
-                plan_best_list = [plan * mask.reshape(-1, 1, block_num**2)]
+                plan_best_list = [plan]
             elif obj == obj_best:
-                duplicate = 0            
-                for plan_best in plan_best_list:
-                    if torch.sum(plan_best != (plan * mask.reshape(-1, 1, block_num**2))) == 0:
-                        duplicate = 1
-                        break
-                if not duplicate:
-                    plan_best_list.append(plan * mask.reshape(-1, 1, block_num**2))
+                plan_best_list.append(plan)
 
-        ### By our algorithm
-        plan = mask_transport(mask, unary, eps=eps, n_iter=block_num**2, t_type='exact')  * mask.reshape(-1, 1, block_num**2)
+        ### By exact algorithm
+        cost_np = cost.cpu().numpy()
+        plan_indices = torch.tensor(lapjv(cost_np[0])[0], dtype=torch.long).unsqueeze(0)
+        plan_exact = torch.zeros_like(cost).scatter_(-1, plan_indices.unsqueeze(-1), 1)
 
         dist = block_num
         for plan_best in plan_best_list:
-            dist = min(dist, int(torch.sum(plan_best != plan)))
+            dist = min(dist, int(torch.sum(plan_best != plan_exact)))
             
-        positive += int(mask.sum())
-        incorrect_elm += dist
         if dist > 0:
             incorrect += 1
         
         if (i+1)%100==0:
-            print('(sample ) {}/{}'.format(incorrect, i+1))
-            print('(element) {}/{}'.format(incorrect_elm, positive))
+            print('(incorrect/sample): {}/{}'.format(incorrect, i+1))
 
-    print('suboptimal (sample): {}/{}'.format(incorrect, n_sample))
-    print('suboptimal (element): {}/{}'.format(incorrect_elm, positive))
 
