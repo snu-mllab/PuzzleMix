@@ -17,7 +17,7 @@ six 1.12.0
 ## Download Checkpoints and Test
 We provide a checkpoint of adversarial Puzzle Mix with PreActResNet18 trained on CIFAR-100. The model has 80.34% clean test accuracy and 42.89% accuracy against FGSM with 8/255 l-infinity epsilon-ball.
 
-CIFAR-100 dataset will be downloaded at ```[data_path]```, if the dataset is not exist. To test corruption robusetness, please refer https://github.com/hendrycks/robustness to download dataset. Note that the corruption dataset should be downloaded at ```[data_path]``` with the folder name of Cifar100-C (for CIFAR100) and tiny-imagenet-200-C (for Tiny-ImageNet)
+CIFAR-100 dataset will be downloaded at ```[data_path]```, if the dataset is not exist. To test corruption robusetness, please refer to https://github.com/hendrycks/robustness to download dataset. Note that the corruption dataset should be downloaded at ```[data_path]``` with the folder name of Cifar100-C (for CIFAR100) and tiny-imagenet-200-C (for Tiny-ImageNet)
 
 To test the model, run:
 ```
@@ -90,9 +90,46 @@ python load_data.py
 ```
 
 ---------------------
+To reproduce **Puzzle Mix with PreActResNet18 for 1200 epochs**, run:
+```
+python main.py --dataset tiny-imagenet-200 --data_dir [data_path] --root_dir [save_path] --labels_per_class 500 --arch preactresnet18  --learning_rate 0.2 --momentum 0.9 --decay 0.0001 --epochs 1200 --schedule 600 900 --gammas 0.1 0.1 --train mixup --mixup_alpha 1.0 --graph True --n_labels 3 --eta 0.2 --beta 1.2 --gamma 0.5 --neigh_size 4 --transport True --t_eps 0.8 --clean_lam 1
+```
+
+To reproduce **Puzzle Mix with PreActResNet18 for 600 epochs**, run:
+```
+python main.py --dataset tiny-imagenet-200 --data_dir [data_path] --root_dir [save_path] --labels_per_class 500 --arch preactresnet18  --learning_rate 0.2 --momentum 0.9 --decay 0.0001 --epochs 600 --schedule 300 450 --gammas 0.1 0.1 --train mixup --mixup_alpha 1.0 --graph True --n_labels 3 --eta 0.2 --beta 1.2 --gamma 0.5 --neigh_size 4 --transport True --t_eps 0.8 --clean_lam 1
+```
+
+To reproduce **adversarial Puzzle Mix with PreActResNet18 for 1200 epochs**, run:
+```
+python main.py --dataset tiny-imagenet-200 --data_dir [data_path] --root_dir [save_path] --labels_per_class 500 --arch preactresnet18  --learning_rate 0.2 --momentum 0.9 --decay 0.0001 --epochs 1200 --schedule 600 900 --gammas 0.1 0.1 --train mixup --mixup_alpha 1.0 --graph True --n_labels 3 --eta 0.2 --beta 1.2 --gamma 0.5 --neigh_size 4 --transport True --t_eps 0.8 --adv_p 0.15 --adv_eps 10.0 --clean_lam 1
+```
+
+To reproduce **adversarial Puzzle Mix with PreActResNet18 for 600 epochs**, run:
+```
+python main.py --dataset tiny-imagenet-200 --data_dir [data_path] --root_dir [save_path] --labels_per_class 500 --arch preactresnet18  --learning_rate 0.2 --momentum 0.9 --decay 0.0001 --epochs 600 --schedule 300 450 --gammas 0.1 0.1 --train mixup --mixup_alpha 1.0 --graph True --n_labels 3 --eta 0.2 --beta 1.2 --gamma 0.5 --neigh_size 4 --transport True --t_eps 0.8 --adv_p 0.15 --adv_eps 10.0 --clean_lam 1
+```
 
 
+---------------------
+Belows are commands to reproduce baselines.
 
+To reproduce **Vanilla with PreActResNet18 for 1200 epochs**, run:
+```
+python main.py --dataset tiny-imagenet-200 --data_dir [data_path] --root_dir [save_path] --labels_per_class 500 --arch preactresnet18  --learning_rate 0.2 --momentum 0.9 --decay 0.0001 --epochs 1200 --schedule 600 900 --gammas 0.1 0.1 --train vanilla
+```
 
+To reproduce **input mixup with PreActResNet18 for 1200 epochs**, run:
+```
+python main.py --dataset tiny-imagenet-200 --data_dir [data_path] --root_dir [save_path] --labels_per_class 500 --arch preactresnet18  --learning_rate 0.2 --momentum 0.9 --decay 0.0001 --epochs 1200 --schedule 600 900 --gammas 0.1 0.1 --train mixup --mixup_alpha 0.2
+```
 
+To reproduce **manifold mixup with PreActResNet18 for 1200 epochs**, run:
+```
+python main.py --dataset tiny-imagenet-200 --data_dir [data_path] --root_dir [save_path] --labels_per_class 500 --arch preactresnet18  --learning_rate 0.2 --momentum 0.9 --decay 0.0001 --epochs 1200 --schedule 600 900 --gammas 0.1 0.1 --train mixup_hidden --mixup_alpha 0.2
+```
 
+To reproduce **CutMix with PreActResNet18 for 1200 epochs**, run:
+```
+python main.py --dataset tiny-imagenet-200 --data_dir [data_path] --root_dir [save_path] --labels_per_class 500 --arch preactresnet18  --learning_rate 0.2 --momentum 0.9 --decay 0.0001 --epochs 1200 --schedule 600 900 --gammas 0.1 0.1 --train mixup --mixup_alpha 0.2 --box True
+```
