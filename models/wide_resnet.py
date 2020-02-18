@@ -9,7 +9,7 @@ import sys, os
 import numpy as np
 import random
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from utils import to_one_hot, mixup_process, get_lambda
+from mixup import to_one_hot, mixup_process, get_lambda
 
 act = torch.nn.ReLU()
 
@@ -80,7 +80,6 @@ class Wide_ResNet(nn.Module):
     
 
     def forward(self, x, target= None, mixup=False, mixup_hidden=False, args = None, grad=None, noise=None, adv_mask1=0, adv_mask2=0):
-    
         if mixup_hidden:
             layer_mix = random.randint(0,2)
         elif mixup:
@@ -113,7 +112,6 @@ class Wide_ResNet(nn.Module):
 
         out = act(self.bn1(out))
         out = F.avg_pool2d(out, 8)
-        # out = F.avg_pool2d(out, out.shape[-2:])
         out = out.view(out.size(0), -1)
         out = self.linear(out)
         

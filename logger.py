@@ -1,72 +1,166 @@
-# Code referenced from https://gist.github.com/gyglim/1f8dfb1b5c82627ae3efcfbbadb9f514
-import tensorflow as tf
-import numpy as np
-import scipy.misc 
+import argparse
 import sys
-if sys.version[0] == '2':
-  from StringIO import StringIO  # Python 2.x
-elif sys.version[0] == '3':
-  from io import BytesIO       # Python 3.x
+if sys.version_info[0] < 3:
+    import cPickle as pickle
+else:
+ import _pickle as pickle
+import os
+import shutil
+import numpy as np
+from scipy.stats import norm
+import seaborn as sns
+import matplotlib.pyplot as plt
+import time
+
+sns.set(color_codes=True)
+plot_from_index=-10000
 
 
-class Logger(object):
+def copy_script_to_folder(caller_path, folder):
+    '''copy script'''
+    script_filename = caller_path.split('/')[-1]
+    script_relative_path = os.path.join(folder, script_filename)
+    shutil.copy(caller_path, script_relative_path)
+
+
+def time_string():
+    '''convert time format'''
+    ISOTIMEFORMAT='%Y-%m-%d %X'
+    string = '[{}]'.format(time.strftime( ISOTIMEFORMAT, time.gmtime(time.time()) ))
+    return string
+
+
+def convert_secs2time(epoch_time):
+    need_hour = int(epoch_time / 3600)
+    need_mins = int((epoch_time - 3600*need_hour) / 60)
+    need_secs = int(epoch_time - 3600*need_hour - 60*need_mins)
+    return need_hour, need_mins, need_secs
+
+
+class RecorderMeter(object):
+    """Computes and stores the minimum loss value and its epoch index"""
+    def __init__(self, total_epoch):
+        self.reset(total_epoch)
+
+    def reset(self, total_epoch):
+        assert total_epoch > 0
+        self.total_epoch   = total_epoch
+        self.current_epoch = 0
+        self.epoch_losses  = np.zeros((self.total_epoch, 2), dtype=np.float32) # [epoch, train/val]
+        self.epoch_losses  = self.epoch_losses - 1
+
+        self.epoch_accuracy= np.zeros((self.total_epoch, 2), dtype=np.float32) # [epoch, train/val]
+        self.epoch_accuracy= self.epoch_accuracy
+
+    def update(self, idx, train_loss, train_acc, val_loss, val_acc):
+        assert idx >= 0 and idx < self.total_epoch, 'total_epoch : {} , but update with the {} index'.format(self.total_epoch, idx)
+        self.epoch_losses  [idx, 0] = train_loss
+        self.epoch_losses  [idx, 1] = val_loss
+        self.epoch_accuracy[idx, 0] = train_acc
+        self.epoch_accuracy[idx, 1] = val_acc
+        self.current_epoch = idx + 1
+        return self.max_accuracy(False) == val_acc
+
+    def max_accuracy(self, istrain):
+        if self.current_epoch <= 0: return 0
+        if istrain: return self.epoch_accuracy[:self.current_epoch, 0].max()
+        else:       return self.epoch_accuracy[:self.current_epoch, 1].max()
   
-  def __init__(self, log_dir):
-    """Create a summary writer logging to log_dir."""
-    self.writer = tf.summary.FileWriter(log_dir)
+    def plot_curve(self, save_path):
+        title = 'the accuracy/loss curve of train/val'
+        dpi = 80  
+        width, height = 1200, 800
+        legend_fontsize = 10
+        scale_distance = 48.8
+        figsize = width / float(dpi), height / float(dpi)
 
-  def scalar_summary(self, tag, value, step):
-    """Log a scalar variable."""
-    summary = tf.Summary(value=[tf.Summary.Value(tag=tag, simple_value=value)])
-    self.writer.add_summary(summary, step)
+        fig = plt.figure(figsize=figsize)
+        x_axis = np.array([i for i in range(self.total_epoch)]) # epochs
+        y_axis = np.zeros(self.total_epoch)
 
-  def image_summary(self, tag, images, step):
-    """Log a list of images."""
+        plt.xlim(0, self.total_epoch)
+        plt.ylim(0, 100)
+        interval_y = 5
+        interval_x = 5
+        plt.xticks(np.arange(0, self.total_epoch + interval_x, interval_x))
+        plt.yticks(np.arange(0, 100 + interval_y, interval_y))
+        plt.grid()
+        plt.title(title, fontsize=20)
+        plt.xlabel('the training epoch', fontsize=16)
+        plt.ylabel('accuracy', fontsize=16)
+      
+        y_axis[:] = self.epoch_accuracy[:, 0]
+        plt.plot(x_axis, y_axis, color='g', linestyle='-', label='train-accuracy', lw=2)
+        plt.legend(loc=4, fontsize=legend_fontsize)
 
-    img_summaries = []
-    for i, img in enumerate(images):
-      # Write the image to a string
-      try:
-        s = StringIO()
-      except:
-        s = BytesIO()
-      scipy.misc.toimage(img).save(s, format="png")
+        y_axis[:] = self.epoch_accuracy[:, 1]
+        plt.plot(x_axis, y_axis, color='y', linestyle='-', label='valid-accuracy', lw=2)
+        plt.legend(loc=4, fontsize=legend_fontsize)
 
-      # Create an Image object
-      img_sum = tf.Summary.Image(encoded_image_string=s.getvalue(),
-                                 height=img.shape[0],
-                                 width=img.shape[1])
-      # Create a Summary value
-      img_summaries.append(tf.Summary.Value(tag='%s/%d' % (tag, i), image=img_sum))
+        
+        y_axis[:] = self.epoch_losses[:, 0]
+        plt.plot(x_axis, y_axis*50, color='g', linestyle=':', label='train-loss-x50', lw=2)
+        plt.legend(loc=4, fontsize=legend_fontsize)
 
-    # Create and write Summary
-    summary = tf.Summary(value=img_summaries)
-    self.writer.add_summary(summary, step)
+        y_axis[:] = self.epoch_losses[:, 1]
+        plt.plot(x_axis, y_axis*50, color='y', linestyle=':', label='valid-loss-x50', lw=2)
+        plt.legend(loc=4, fontsize=legend_fontsize)
+
+        if save_path is not None:
+            fig.savefig(save_path, dpi=dpi, bbox_inches='tight')
+            print ('---- save figure {} into {}'.format(title, save_path))
+        plt.close(fig)
+
+
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+
+
+def plotting(exp_dir):
+    # Load the training log dictionary:
+    train_dict = pickle.load(open(os.path.join(exp_dir, 'log.pkl'), 'rb'))
+    ###########################################################
+    ### Make the vanilla train and test loss per epoch plot ###
+    ###########################################################
+   
+    plt.plot(np.asarray(train_dict['train_loss']), label='train_loss')
+    plt.plot(np.asarray(train_dict['test_loss']), label='test_loss')
+        
+    #plt.ylim(0,2000)
+    plt.xlabel('evaluation step')
+    plt.ylabel('metrics')
+    plt.tight_layout()
+    plt.legend(loc='upper right')
+    plt.savefig(os.path.join(exp_dir, 'loss.png' ))
+    plt.clf()
+   
+    ## accuracy###
+    plt.plot(np.asarray(train_dict['train_acc']), label='train_acc')
+    plt.plot(np.asarray(train_dict['test_acc']), label='test_acc')
+        
+    #plt.ylim(0,2000)
+    plt.xlabel('evaluation step')
+    plt.ylabel('metrics')
+    plt.tight_layout()
+    plt.legend(loc='upper right')
+    plt.savefig(os.path.join(exp_dir, 'acc.png' ))
+    plt.clf()
     
-  def histo_summary(self, tag, values, step, bins=1000):
-    """Log a histogram of the tensor of values."""
+   
+if __name__ == '__main__':
+    plotting('temop')
 
-    # Create a histogram using numpy
-    counts, bin_edges = np.histogram(values, bins=bins)
-
-    # Fill the fields of the histogram proto
-    hist = tf.HistogramProto()
-    hist.min = float(np.min(values))
-    hist.max = float(np.max(values))
-    hist.num = int(np.prod(values.shape))
-    hist.sum = float(np.sum(values))
-    hist.sum_squares = float(np.sum(values**2))
-
-    # Drop the start of the first bin
-    bin_edges = bin_edges[1:]
-
-    # Add bin edges and counts
-    for edge in bin_edges:
-      hist.bucket_limit.append(edge)
-    for c in counts:
-      hist.bucket.append(c)
-
-    # Create and write Summary
-    summary = tf.Summary(value=[tf.Summary.Value(tag=tag, histo=hist)])
-    self.writer.add_summary(summary, step)
-    self.writer.flush()

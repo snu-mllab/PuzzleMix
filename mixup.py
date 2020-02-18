@@ -1,134 +1,20 @@
-import os, sys, time
-import torch
-from torch.autograd import Variable
+import os
 import numpy as np
-import matplotlib
-matplotlib.use('agg')
-import matplotlib.pyplot as plt
+import torch
 import torch.nn.functional as F
 import gco
 from lapjv import lapjv
 
-class AverageMeter(object):
-  """Computes and stores the average and current value"""
-  def __init__(self):
-    self.reset()
-
-  def reset(self):
-    self.val = 0
-    self.avg = 0
-    self.sum = 0
-    self.count = 0
-
-  def update(self, val, n=1):
-    self.val = val
-    self.sum += val * n
-    self.count += n
-    self.avg = self.sum / self.count
-
-
-class RecorderMeter(object):
-  """Computes and stores the minimum loss value and its epoch index"""
-  def __init__(self, total_epoch):
-    self.reset(total_epoch)
-
-  def reset(self, total_epoch):
-    assert total_epoch > 0
-    self.total_epoch   = total_epoch
-    self.current_epoch = 0
-    self.epoch_losses  = np.zeros((self.total_epoch, 2), dtype=np.float32) # [epoch, train/val]
-    self.epoch_losses  = self.epoch_losses - 1
-
-    self.epoch_accuracy= np.zeros((self.total_epoch, 2), dtype=np.float32) # [epoch, train/val]
-    self.epoch_accuracy= self.epoch_accuracy
-
-  def update(self, idx, train_loss, train_acc, val_loss, val_acc):
-    assert idx >= 0 and idx < self.total_epoch, 'total_epoch : {} , but update with the {} index'.format(self.total_epoch, idx)
-    self.epoch_losses  [idx, 0] = train_loss
-    self.epoch_losses  [idx, 1] = val_loss
-    self.epoch_accuracy[idx, 0] = train_acc
-    self.epoch_accuracy[idx, 1] = val_acc
-    self.current_epoch = idx + 1
-    return self.max_accuracy(False) == val_acc
-
-  def max_accuracy(self, istrain):
-    if self.current_epoch <= 0: return 0
-    if istrain: return self.epoch_accuracy[:self.current_epoch, 0].max()
-    else:       return self.epoch_accuracy[:self.current_epoch, 1].max()
-  
-  def plot_curve(self, save_path):
-    title = 'the accuracy/loss curve of train/val'
-    dpi = 80  
-    width, height = 1200, 800
-    legend_fontsize = 10
-    scale_distance = 48.8
-    figsize = width / float(dpi), height / float(dpi)
-
-    fig = plt.figure(figsize=figsize)
-    x_axis = np.array([i for i in range(self.total_epoch)]) # epochs
-    y_axis = np.zeros(self.total_epoch)
-
-    plt.xlim(0, self.total_epoch)
-    plt.ylim(0, 100)
-    interval_y = 5
-    interval_x = 5
-    plt.xticks(np.arange(0, self.total_epoch + interval_x, interval_x))
-    plt.yticks(np.arange(0, 100 + interval_y, interval_y))
-    plt.grid()
-    plt.title(title, fontsize=20)
-    plt.xlabel('the training epoch', fontsize=16)
-    plt.ylabel('accuracy', fontsize=16)
-  
-    y_axis[:] = self.epoch_accuracy[:, 0]
-    plt.plot(x_axis, y_axis, color='g', linestyle='-', label='train-accuracy', lw=2)
-    plt.legend(loc=4, fontsize=legend_fontsize)
-
-    y_axis[:] = self.epoch_accuracy[:, 1]
-    plt.plot(x_axis, y_axis, color='y', linestyle='-', label='valid-accuracy', lw=2)
-    plt.legend(loc=4, fontsize=legend_fontsize)
-
-    
-    y_axis[:] = self.epoch_losses[:, 0]
-    plt.plot(x_axis, y_axis*50, color='g', linestyle=':', label='train-loss-x50', lw=2)
-    plt.legend(loc=4, fontsize=legend_fontsize)
-
-    y_axis[:] = self.epoch_losses[:, 1]
-    plt.plot(x_axis, y_axis*50, color='y', linestyle=':', label='valid-loss-x50', lw=2)
-    plt.legend(loc=4, fontsize=legend_fontsize)
-
-    if save_path is not None:
-      fig.savefig(save_path, dpi=dpi, bbox_inches='tight')
-      print ('---- save figure {} into {}'.format(title, save_path))
-    plt.close(fig)
-    
-
-def time_string():
-  ISOTIMEFORMAT='%Y-%m-%d %X'
-  string = '[{}]'.format(time.strftime( ISOTIMEFORMAT, time.gmtime(time.time()) ))
-  return string
-
-def convert_secs2time(epoch_time):
-  need_hour = int(epoch_time / 3600)
-  need_mins = int((epoch_time - 3600*need_hour) / 60)
-  need_secs = int(epoch_time - 3600*need_hour - 60*need_mins)
-  return need_hour, need_mins, need_secs
-
-def time_file_str():
-  ISOTIMEFORMAT='%Y-%m-%d'
-  string = '{}'.format(time.strftime( ISOTIMEFORMAT, time.gmtime(time.time()) ))
-  return string + '-{}'.format(random.randint(1, 10000))
 
 def to_one_hot(inp,num_classes,device='cuda'):
+    '''one-hot label'''
     y_onehot = torch.zeros((inp.size(0), num_classes), dtype=torch.float32, device=device)
     y_onehot.scatter_(1, inp.unsqueeze(1), 1)
-    
     return y_onehot
 
 
-def unsqueeze3(tensor):
-    return tensor.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
-
 def cost_matrix(width):
+    '''transport cost'''
     C = np.zeros([width**2, width**2], dtype=np.float32)
     for m_i in range(width**2):
         i1 = m_i // width
@@ -141,25 +27,11 @@ def cost_matrix(width):
     C = torch.tensor(C).cuda()
     return C
 
-
 cost_matrix_dict = {'2':cost_matrix(2).unsqueeze(0), '4':cost_matrix(4).unsqueeze(0), '8':cost_matrix(8).unsqueeze(0), '16':cost_matrix(16).unsqueeze(0)}
       
-def K_prox(x, H, transpose=False):
-    c = x.shape[1]
-    width = x.shape[2]
-    if transpose:
-        return torch.matmul(x.view([-1,c,1,width**2]), H).view([-1,c,width, width])
-    else:
-        return torch.matmul(H, x.view([-1,c,width**2,1])).view([-1,c,width, width])
-
-def K(x, xi1):
-      return torch.matmul(torch.matmul(xi1, x), xi1)
-
-def nan_recover(tensor, thres=1e100):
-    tensor[tensor > thres] = thres
-    return tensor
 
 def mixup_process(out, target_reweighted, hidden=0, args=None, grad=None, noise=None, adv_mask1=0, adv_mask2=0):
+    '''various mixup process'''
     if args is not None:
         mixup_alpha = args.mixup_alpha
         in_batch = args.in_batch
@@ -183,12 +55,15 @@ def mixup_process(out, target_reweighted, hidden=0, args=None, grad=None, noise=
     lam = np.array([lam]).astype('float32')
     
     if hidden:
+        # Manifold Mixup
         out = out*lam[0] + out[indices]*(1-lam[0])
         ratio = torch.ones(out.shape[0], device='cuda') * lam[0]
     else:
         if box:
+            # CutMix
             out, ratio = mixup_box(out, out[indices], alpha=lam[0])
         elif graph:
+            # PuzzleMix
             if block_num > 1:
                 out, ratio = mixup_graph(out, grad, indices, block_num=block_num,
                                  alpha=lam, beta=beta, gamma=gamma, eta=eta, neigh_size=neigh_size, n_labels=n_labels,
@@ -197,6 +72,7 @@ def mixup_process(out, target_reweighted, hidden=0, args=None, grad=None, noise=
             else: 
                 ratio = torch.ones(out.shape[0], device='cuda')
         else:
+            # Input Mixup
             out = out*lam[0] + out[indices]*(1-lam[0])
             ratio = torch.ones(out.shape[0], device='cuda') * lam[0]
 
@@ -204,19 +80,6 @@ def mixup_process(out, target_reweighted, hidden=0, args=None, grad=None, noise=
     target_reweighted = target_reweighted * ratio.unsqueeze(-1) + target_shuffled_onehot * (1 - ratio.unsqueeze(-1))
     
     return out, target_reweighted
-
-
-def mixup_data(x, y, alpha):
-    '''Compute the mixup data. Return mixed inputs, pairs of targets, and lambda'''
-    if alpha > 0.:
-        lam = np.random.beta(alpha, alpha)
-    else:
-        lam = 1.
-    batch_size = x.size()[0]
-    index = torch.randperm(batch_size).cuda()
-    mixed_x = lam * x + (1 - lam) * x[index,:]
-    y_a, y_b = y, y[index]
-    return mixed_x, y_a, y_b, lam
 
 
 def get_lambda(alpha=1.0, alpha2=None):
@@ -231,8 +94,8 @@ def get_lambda(alpha=1.0, alpha2=None):
     return lam
 
   
-'''code for graphmix'''
 def graphcut_multi(unary1, unary2, pw_x, pw_y, alpha, beta, eta, n_labels=2):
+    '''alpha-beta swap algorithm'''
     block_num = unary1.shape[0]
     
     large_val = 1000 * block_num ** 2 
@@ -260,35 +123,9 @@ def graphcut_multi(unary1, unary2, pw_x, pw_y, alpha, beta, eta, n_labels=2):
 
     return mask
 
-
-def graphcut_multi_float(unary1, unary2, pw_x, pw_y, alpha, beta, eta, n_labels=2):
-    block_num = unary1.shape[-1]
-    
-    if n_labels == 2:
-        prior=  eta * np.array([-np.log(alpha + 1e-8), -np.log(1 - alpha + 1e-8)]) / block_num ** 2
-    elif n_labels == 3:
-        prior= eta * np.array([-np.log(alpha**2 + 1e-8), -np.log(2 * alpha * (1-alpha) + 1e-8), -np.log((1 - alpha)**2 + 1e-8)]) / block_num ** 2
-    elif n_labels == 4:
-        prior= eta * np.array([-np.log(alpha**3 + 1e-8), -np.log(3 * alpha **2 * (1-alpha) + 1e-8), 
-                             -np.log(3 * alpha * (1-alpha) **2 + 1e-8), -np.log((1 - alpha)**3 + 1e-8)]) / block_num ** 2
-        
-    unary_cost = np.stack([(1-lam) * unary1 + lam * unary2 + prior[i] for i, lam in enumerate(np.linspace(0,1, n_labels))], axis=-1)
-    pairwise_cost = np.zeros(shape=[n_labels, n_labels], dtype=np.float32) 
-
-    for i in range(n_labels):
-        for j in range(n_labels):
-            pairwise_cost[i, j] = (i-j)**2 / (n_labels-1)**2
-
-    pw_x = pw_x + beta
-    pw_y = pw_y + beta
-    
-    labels = 1.0 - gco.cut_grid_graph(unary_cost, pairwise_cost, pw_x, pw_y, algorithm='swap')/(n_labels-1)
-    mask = labels.reshape(block_num, block_num)
-            
-    return mask
-  
   
 def neigh_penalty(input1, input2, k):
+    '''data local smoothness term'''
     pw_x = input1[:,:,:-1,:] - input2[:,:,1:,:]
     pw_y = input1[:,:,:,:-1] - input2[:,:,:,1:]
 
@@ -302,6 +139,7 @@ def neigh_penalty(input1, input2, k):
 
 
 def mixup_box(input1, input2, alpha=0.5):
+    '''CutMix'''
     batch_size, _, height, width = input1.shape
     ratio = np.zeros([batch_size])
     
@@ -320,10 +158,8 @@ def mixup_box(input1, input2, alpha=0.5):
     return input1, ratio
 
 
-from scipy.ndimage.filters import gaussian_filter
-random_state = np.random.RandomState(None)
-
 def mixup_graph(input1, grad1, indices, block_num=2, alpha=0.5, beta=0., gamma=0., eta=0.2, neigh_size=2, n_labels=2, mean=None, std=None, transport=False, t_eps=10.0, t_size=16, noise=None, adv_mask1=0, adv_mask2=0):
+    '''Puzzle Mix'''
     input2 = input1[indices].clone()
         
     batch_size, _, _, width = input1.shape
@@ -331,19 +167,20 @@ def mixup_graph(input1, grad1, indices, block_num=2, alpha=0.5, beta=0., gamma=0
     neigh_size = min(neigh_size, block_size)
     t_size = min(t_size, block_size)
 
+    # prior parameter
     if alpha.shape[0] == 1:
         alpha = np.ones([batch_size]) * alpha[0]
-
-    ratio = np.zeros([batch_size])
     beta = beta/block_num/16
-   
-    grad1_pool = F.avg_pool2d(grad1, block_size)
-    mask = np.zeros([batch_size, 1, width, width])
-    unary1_torch = grad1_pool / grad1_pool.view(batch_size, -1).sum(1).view(batch_size, 1, 1)
     
     mask=[]
+    ratio = np.zeros([batch_size])
+
+    # unary term
+    grad1_pool = F.avg_pool2d(grad1, block_size)
+    unary1_torch = grad1_pool / grad1_pool.view(batch_size, -1).sum(1).view(batch_size, 1, 1)
     unary2_torch = unary1_torch[indices]
-        
+     
+    # calculate pairwise terms
     input1_pool = F.avg_pool2d(input1 * std + mean, neigh_size)
     input2_pool = input1_pool[indices]
 
@@ -360,6 +197,7 @@ def mixup_graph(input1, grad1, indices, block_num=2, alpha=0.5, beta=0., gamma=0
     pw_x = beta * gamma * pw_x
     pw_y = beta * gamma * pw_y
         
+    # re-define unary and pairwise terms to draw graph
     unary1 = unary1_torch.clone()
     unary2 = unary2_torch.clone()
         
@@ -381,13 +219,16 @@ def mixup_graph(input1, grad1, indices, block_num=2, alpha=0.5, beta=0., gamma=0
     pw_x = pw_x.detach().cpu().numpy()
     pw_y = pw_y.detach().cpu().numpy()
 
+    # solve graphcut
     for i in range(batch_size):
         mask.append(graphcut_multi(unary2[i], unary1[i], pw_x[i], pw_y[i], alpha[i], beta, eta, n_labels))
         ratio[i] = mask[i].sum()
 
+    # optimal mask
     mask = torch.tensor(mask, dtype=torch.float32, device='cuda')
     mask = mask.unsqueeze(1)
 
+    # add adversarial noise
     if adv_mask1 == 1.:
         input1 = input1 * std + mean + noise
         input1 = torch.clamp(input1, 0, 1)
@@ -398,6 +239,7 @@ def mixup_graph(input1, grad1, indices, block_num=2, alpha=0.5, beta=0., gamma=0
         input2 = torch.clamp(input2, 0, 1)
         input2 = (input2 - mean)/std
 
+    # tranport
     if transport:
         if t_size == -1:
             t_block_num = block_num
@@ -420,23 +262,22 @@ def mixup_graph(input1, grad1, indices, block_num=2, alpha=0.5, beta=0., gamma=0
         plan = mask_transport(1-mask, unary2_torch, eps=t_eps)
         input2 = transport_image(input2, plan, batch_size, t_block_num, t_size)
 
+    # final mask and mixed ratio
     mask = F.interpolate(mask, size=width)
-
     ratio = torch.tensor(ratio/block_num**2, dtype=torch.float32, device='cuda')
          
     return mask * input1 + (1-mask) * input2, ratio
 
 
 def mask_transport(mask, grad_pool, eps=0.01):
+    '''optimal transport plan'''
     batch_size = mask.shape[0]
     block_num = mask.shape[-1]
 
-    # n_iter = int(np.sqrt(block_num))  
     n_iter = int(block_num)
     C = cost_matrix_dict[str(block_num)]
     
     z = (mask>0).float()
-    
     cost = eps * C - grad_pool.reshape(-1, block_num**2, 1) * z.reshape(-1, 1, block_num**2)
     
     # row and col
@@ -452,13 +293,11 @@ def mask_transport(mask, grad_pool, eps=0.01):
 
     cost += plan_lose
 
-    
     return plan_win
-    # plan_move = (plan_win - torch.eye(block_num**2, device='cuda'))>0
-    # return plan_move
-
+    
 
 def transport_image(img, plan, batch_size, block_num, block_size):
+    '''apply transport plan to images'''
     input_patch = img.reshape([batch_size, 3, block_num, block_size, block_num * block_size]).transpose(-2,-1)
     input_patch = input_patch.reshape([batch_size, 3, block_num, block_num, block_size, block_size]).transpose(-2,-1)
     input_patch = input_patch.reshape([batch_size, 3, block_num**2, block_size, block_size]).permute(0,1,3,4,2).unsqueeze(-1)
@@ -471,36 +310,4 @@ def transport_image(img, plan, batch_size, block_num, block_size):
     return input_transport
 
   
-def create_val_folder(data_set_path):
-    """
-    Used for Tiny-imagenet dataset
-    Copied from https://github.com/soumendukrg/BME595_DeepLearning/blob/master/Homework-06/train.py
-    This method is responsible for separating validation images into separate sub folders,
-    so that test and val data can be read by the pytorch dataloaders
-    """
-    path = os.path.join(data_set_path, 'val/images')  # path where validation data is present now
-    filename = os.path.join(data_set_path, 'val/val_annotations.txt')  # file where image2class mapping is present
-    fp = open(filename, "r")  # open file in read mode
-    data = fp.readlines()  # read line by line
-
-    # Create a dictionary with image names as key and corresponding classes as values
-    val_img_dict = {}
-    for line in data:
-        words = line.split("\t")
-        val_img_dict[words[0]] = words[1]
-    fp.close()
-
-    # Create folder if not present, and move image into proper folder
-    for img, folder in val_img_dict.items():
-        newpath = (os.path.join(path, folder))
-        if not os.path.exists(newpath):  # check if folder exists
-            os.makedirs(newpath)
-
-        if os.path.exists(os.path.join(path, img)):  # Check if image exists in default directory
-            os.rename(os.path.join(path, img), os.path.join(newpath, img))
-
-if __name__ == "__main__":
-    create_val_folder('data/tiny-imagenet-200')  # Call method to create validation image folders
-
-
 

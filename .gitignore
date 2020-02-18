@@ -6,3 +6,5 @@
 */*.pyc
 !models/
 !imagenet/
+saliency.py
+
