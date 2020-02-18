@@ -30,7 +30,7 @@ python test_robust.py --ckpt preactresnet18 --datapath [data_path]
 Detailed descriptions of arguments are provided in ```main.py```. Below are some of the examples for reproducing the experimental results. 
 
 ### CIFAR-100
-Dataset will be downloaded at ```[data_path]``` and the results will be saved at ```[save_path]```.
+Dataset will be downloaded at ```[data_path]``` and the results will be saved at ```[save_path]```. If you want to run codes without saving results, please set ```--log_off True```.
 
 ---------------------
 To reproduce **Puzzle Mix with PreActResNet18 for 1200 epochs**, run:
