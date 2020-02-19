@@ -82,8 +82,8 @@ For **WRN28_10 with 400 epoch**, we need to change ```--arch wrn28_10```, ```--e
 The following process is forked from [(link)](https://github.com/vikasverma1077/manifold_mixup/tree/master/supervised).
 
 1.Download the zipped data from https://tiny-imagenet.herokuapp.com/  
-2.If not already exiting, create a subfolder "data" in root folder "mixup"  
-3.Extract the zipped data in folder mixup/data  
+2.If not already exiting, create a subfolder "data" in root folder "PuzzleMix"  
+3.Extract the zipped data in folder PuzzleMix/data  
 4.Run the following script (This will arange the validation data in the format required by the pytorch loader)
 ```
 python load_data.py
