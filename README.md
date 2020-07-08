@@ -13,7 +13,6 @@ gco-wrapper (https://github.com/Borda/pyGCO)
 
 matplotlib 2.1.0  
 numpy 1.13.3  
-seaborn 0.8.0  
 six 1.12.0  
 
 ## Download Checkpoints and Test
