@@ -8,11 +8,9 @@ import os
 import shutil
 import numpy as np
 from scipy.stats import norm
-import seaborn as sns
 import matplotlib.pyplot as plt
 import time
 
-sns.set(color_codes=True)
 plot_from_index=-10000
 
 
