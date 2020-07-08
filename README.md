@@ -1,6 +1,6 @@
 # Puzzle Mix: Exploiting Saliency and Local Statistics for Optimal Mixup
 
-This is the code for the paper "Puzzle Mix: Exploiting Saliency and Local Statistics for Optimal Mixup" submitted to ICML'20. Some parts of the codes are borrowed from manifold mixup [(link)](https://github.com/vikasverma1077/manifold_mixup/tree/master/supervised).
+This is the code for the paper "Puzzle Mix: Exploiting Saliency and Local Statistics for Optimal Mixup" submitted to ICML'20 ([paper](https://proceedings.icml.cc/static/paper_files/icml/2020/6618-Paper.pdf), [supp](https://proceedings.icml.cc/static/paper_files/icml/2020/6618-Supplemental.pdf), [talk](https://icml.cc/virtual/2020/paper/6827)). Some parts of the codes are borrowed from manifold mixup ([link](https://github.com/vikasverma1077/manifold_mixup/tree/master/supervised)).
 
 ## Requirements
 This code has been tested with  
