@@ -4,6 +4,16 @@ This is the code for the paper "Puzzle Mix: Exploiting Saliency and Local Statis
 
 ![Puzzle Mix image samples](figures/image_sample.png)
 
+## Citing this Work 
+```
+@inproceedings{kimICML20,
+    title= {Puzzle Mix: Exploiting Saliency and Local Statistics for Optimal Mixup},
+    author = {Kim, Jang-Hyun and Choo, Wonho and Song, Hyun Oh},
+    booktitle = {International Conference on Machine Learning (ICML)},
+    year = {2020}
+}
+```
+
 ## Requirements
 This code has been tested with  
 python 3.6.8  
