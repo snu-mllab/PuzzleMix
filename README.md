@@ -144,3 +144,6 @@ To reproduce **CutMix with PreActResNet18 for 1200 epochs**, run:
 ```
 python main.py --dataset tiny-imagenet-200 --data_dir [data_path] --root_dir [save_path] --labels_per_class 500 --arch preactresnet18  --learning_rate 0.2 --momentum 0.9 --decay 0.0001 --epochs 1200 --schedule 600 900 --gammas 0.1 0.1 --train mixup --mixup_alpha 0.2 --box True
 ```
+
+## License
+MIT License
