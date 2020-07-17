@@ -12,3 +12,4 @@ saliency.py
 !imagenet/*
 .DS_Store
 !figures/*
+figures/.DS_Store
