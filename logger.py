@@ -11,8 +11,6 @@ from scipy.stats import norm
 import matplotlib.pyplot as plt
 import time
 
-plot_from_index=-10000
-
 
 def copy_script_to_folder(caller_path, folder):
     '''copy script'''
