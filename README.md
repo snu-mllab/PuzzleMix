@@ -25,6 +25,7 @@ matplotlib 2.1.0
 numpy 1.13.3  
 six 1.12.0  
 
+
 ## Download Checkpoints and Test
 We provide a checkpoint of adversarial Puzzle Mix with PreActResNet18 trained on CIFAR-100. The model has 80.34% clean test accuracy and 42.89% accuracy against FGSM with 8/255 l-infinity epsilon-ball.
 
@@ -35,6 +36,8 @@ To test the model, run:
 cd checkpoint   
 python test_robust.py --ckpt preactresnet18 --datapath [data_path]
 ```
+
+Also, we provide a jupyter notebook, **Visualization.ipynb**, by which users can visualize Puzzle Mix results with image samples.   
 
 
 ## Reproducing the results
