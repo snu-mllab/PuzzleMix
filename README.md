@@ -15,7 +15,7 @@ This is the code for the paper "Puzzle Mix: Exploiting Saliency and Local Statis
 ```
 
 ## Updates 
-(20.12.01) We built a **multi-processing** code for graph-cut. As a result, the Puzzle Mix implementation (50s/epoch) is only slower about 1.5 times than Vanilla training (34s/epoch) on CIFAR-100, PreActResNet-18. 
+(20.12.01) We built a **multi-processing** code for graph-cut, which runs on CPUs. As a result, the Puzzle Mix implementation (50s/epoch) is only slower about 1.5 times than Vanilla training (34s/epoch) on CIFAR-100, PreActResNet-18. 
 To use the multi-processing, just simply add `--mp [n_procs]` in the command. 
 
 ## Requirements
