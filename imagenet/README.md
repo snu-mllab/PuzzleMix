@@ -15,4 +15,4 @@ provided by the PyTorch repository, to move the validation subset to the labeled
 2. Prepare resized versions of the ImageNet dataset, you can use `resize.py` provided in this repository. 
 
 ## Reproducing the results
-To reproduce the results from the paper, modify ```DATA160``` and ```DATA352``` (in main_fast.py) to your own ```[data_path]``` made with `resize.py`, and run `run_fast.sh`. This script runs the main code `main_fast.py` using the configurations provided in the `configs/` folder. All parameters can be modified by adjusting the configuration files in the `configs/` folder. To evaluate the trained model, run `run_test.sh`.
+To reproduce the results from the paper, modify ```DATA160``` and ```DATA352``` (in run_fast.sh) to your own ```[data_path]``` made with `resize.py`, and run `run_fast.sh`. This script runs the main code `main_fast.py` using the configurations provided in the `configs/` folder. All parameters can be modified by adjusting the configuration files in the `configs/` folder. To evaluate the trained model, run `run_test.sh`.
