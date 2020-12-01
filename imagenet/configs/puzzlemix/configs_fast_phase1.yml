@@ -34,6 +34,8 @@ TRAIN:
     eps: 0.8
     eta: 0.20
 
+    mp: 8
+
 DATA:
     # Number of data workers
     workers: 10

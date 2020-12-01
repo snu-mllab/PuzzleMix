@@ -1,5 +1,5 @@
-DATA160=/data_large/readonly/ImageNet-Fast/imagenet-sz/160
-DATA352=/data_large/readonly/ImageNet-Fast/imagenet-sz/352
+DATA160=/data_large/readonly/imagenet-sz/160
+DATA352=/data_large/readonly/imagenet-sz/352
 
 NAME=puzzlemix
 

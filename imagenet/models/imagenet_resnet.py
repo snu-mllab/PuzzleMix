@@ -137,7 +137,7 @@ class ResNet(nn.Module):
             if manifold:
                 x = lam*x + (1-lam)*x[permuted_idx]
             if graphcut:
-                x, lam = transport(x, unary, permuted_idx, block_num, mask, t_eps)
+                x = transport(x, unary, permuted_idx, block_num, mask, t_eps)
         
         x = self.conv1(x)
         x = self.bn1(x)
@@ -162,11 +162,9 @@ class ResNet(nn.Module):
         x = self.layer4(x)
 
         x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
+        x = x.reshape(x.size(0), -1)
         x = self.fc(x)
 
-        if graphcut:
-            return x, lam
         return x
 
 

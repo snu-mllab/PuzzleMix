@@ -48,7 +48,6 @@ class wide_basic(nn.Module):
         return out
 
 class Wide_ResNet(nn.Module):
-    
     def __init__(self, depth, widen_factor, num_classes, stride = 1):
         super(Wide_ResNet, self).__init__()
         self.num_classes = num_classes
@@ -79,7 +78,7 @@ class Wide_ResNet(nn.Module):
         return nn.Sequential(*layers)
     
 
-    def forward(self, x, target= None, mixup=False, mixup_hidden=False, args = None, grad=None, noise=None, adv_mask1=0, adv_mask2=0):
+    def forward(self, x, target= None, mixup=False, mixup_hidden=False, args = None, grad=None, noise=None, adv_mask1=0, adv_mask2=0, mp=None):
         if mixup_hidden:
             layer_mix = random.randint(0,2)
         elif mixup:
@@ -93,7 +92,7 @@ class Wide_ResNet(nn.Module):
             target_reweighted = to_one_hot(target,self.num_classes)
         
         if layer_mix == 0: 
-            out, target_reweighted = mixup_process(out, target_reweighted, args=args, grad=grad, noise=noise, adv_mask1=adv_mask1, adv_mask2=adv_mask2)
+            out, target_reweighted = mixup_process(out, target_reweighted, args=args, grad=grad, noise=noise, adv_mask1=adv_mask1, adv_mask2=adv_mask2, mp=mp)
 
         out = self.conv1(out)
         out = self.layer1(out)
@@ -112,7 +111,7 @@ class Wide_ResNet(nn.Module):
 
         out = act(self.bn1(out))
         out = F.avg_pool2d(out, 8)
-        out = out.view(out.size(0), -1)
+        out = out.reshape(out.size(0), -1)
         out = self.linear(out)
         
         if target is not None:

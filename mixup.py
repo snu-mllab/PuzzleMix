@@ -37,7 +37,7 @@ def cost_matrix(width, device='cuda'):
 cost_matrix_dict = {'2':cost_matrix(2, device).unsqueeze(0), '4':cost_matrix(4, device).unsqueeze(0), '8':cost_matrix(8, device).unsqueeze(0), '16':cost_matrix(16, device).unsqueeze(0)}
       
 
-def mixup_process(out, target_reweighted, hidden=0, args=None, grad=None, noise=None, adv_mask1=0, adv_mask2=0):
+def mixup_process(out, target_reweighted, hidden=0, args=None, grad=None, noise=None, adv_mask1=0, adv_mask2=0, mp=None):
     '''various mixup process'''
     if args is not None:
         mixup_alpha = args.mixup_alpha
@@ -59,29 +59,28 @@ def mixup_process(out, target_reweighted, hidden=0, args=None, grad=None, noise=
     indices = np.random.permutation(out.size(0))
     
     lam = get_lambda(mixup_alpha)
-    lam = np.array([lam]).astype('float32')
     
     if hidden:
         # Manifold Mixup
-        out = out*lam[0] + out[indices]*(1-lam[0])
-        ratio = torch.ones(out.shape[0], device='cuda') * lam[0]
+        out = out*lam + out[indices]*(1-lam)
+        ratio = torch.ones(out.shape[0], device='cuda') * lam
     else:
         if box:
             # CutMix
-            out, ratio = mixup_box(out, out[indices], alpha=lam[0], device='cuda')
+            out, ratio = mixup_box(out, out[indices], alpha=lam, device='cuda')
         elif graph:
             # PuzzleMix
             if block_num > 1:
                 out, ratio = mixup_graph(out, grad, indices, block_num=block_num,
                                  alpha=lam, beta=beta, gamma=gamma, eta=eta, neigh_size=neigh_size, n_labels=n_labels,
                                  mean=mean, std=std, transport=transport, t_eps=t_eps, t_size=t_size, 
-                                 noise=noise, adv_mask1=adv_mask1, adv_mask2=adv_mask2, device='cuda')
+                                 noise=noise, adv_mask1=adv_mask1, adv_mask2=adv_mask2, mp=mp, device='cuda')
             else: 
                 ratio = torch.ones(out.shape[0], device='cuda')
         else:
             # Input Mixup
-            out = out*lam[0] + out[indices]*(1-lam[0])
-            ratio = torch.ones(out.shape[0], device='cuda') * lam[0]
+            out = out*lam + out[indices]*(1-lam)
+            ratio = torch.ones(out.shape[0], device='cuda') * lam
 
     target_shuffled_onehot = target_reweighted[indices]
     target_reweighted = target_reweighted * ratio.unsqueeze(-1) + target_shuffled_onehot * (1 - ratio.unsqueeze(-1))
@@ -168,7 +167,8 @@ def mixup_box(input1, input2, alpha=0.5, device='cuda'):
     return input1, ratio
 
 
-def mixup_graph(input1, grad1, indices, block_num=2, alpha=0.5, beta=0., gamma=0., eta=0.2, neigh_size=2, n_labels=2, mean=None, std=None, transport=False, t_eps=10.0, t_size=16, noise=None, adv_mask1=0, adv_mask2=0, device='cuda'):
+def mixup_graph(input1, grad1, indices, block_num=2, alpha=0.5, beta=0., gamma=0., eta=0.2, neigh_size=2, n_labels=2, 
+        mean=None, std=None, transport=False, t_eps=10.0, t_size=16, noise=None, adv_mask1=0, adv_mask2=0, device='cuda', mp=None):
     '''Puzzle Mix'''
     input2 = input1[indices].clone()
         
@@ -178,16 +178,11 @@ def mixup_graph(input1, grad1, indices, block_num=2, alpha=0.5, beta=0., gamma=0
     t_size = min(t_size, block_size)
 
     # prior parameter
-    if alpha.shape[0] == 1:
-        alpha = np.ones([batch_size]) * alpha[0]
     beta = beta/block_num/16
     
-    mask=[]
-    ratio = np.zeros([batch_size])
-
     # unary term
     grad1_pool = F.avg_pool2d(grad1, block_size)
-    unary1_torch = grad1_pool / grad1_pool.view(batch_size, -1).sum(1).view(batch_size, 1, 1)
+    unary1_torch = grad1_pool / grad1_pool.reshape(batch_size, -1).sum(1).reshape(batch_size, 1, 1)
     unary2_torch = unary1_torch[indices]
      
     # calculate pairwise terms
@@ -230,10 +225,16 @@ def mixup_graph(input1, grad1, indices, block_num=2, alpha=0.5, beta=0., gamma=0
     pw_y = pw_y.detach().cpu().numpy()
 
     # solve graphcut
-    for i in range(batch_size):
-        mask.append(graphcut_multi(unary2[i], unary1[i], pw_x[i], pw_y[i], alpha[i], beta, eta, n_labels))
-        ratio[i] = mask[i].sum()
-
+    if mp is None:
+        mask=[]
+        for i in range(batch_size):
+            mask.append(graphcut_multi(unary2[i], unary1[i], pw_x[i], pw_y[i], alpha, beta, eta, n_labels))
+    else:
+        input_mp = []
+        for i in range(batch_size):
+            input_mp.append((unary2[i], unary1[i], pw_x[i], pw_y[i], alpha, beta, eta, n_labels))
+        mask = mp.starmap(graphcut_multi, input_mp)
+    
     # optimal mask
     mask = torch.tensor(mask, dtype=torch.float32, device=device)
     mask = mask.unsqueeze(1)
@@ -259,7 +260,7 @@ def mixup_graph(input1, grad1, indices, block_num=2, alpha=0.5, beta=0., gamma=0
             t_block_num = width // t_size
             mask = F.interpolate(mask, size=t_block_num)
             grad1_pool = F.avg_pool2d(grad1, t_size)
-            unary1_torch = grad1_pool / grad1_pool.view(batch_size, -1).sum(1).view(batch_size, 1, 1)
+            unary1_torch = grad1_pool / grad1_pool.reshape(batch_size, -1).sum(1).reshape(batch_size, 1, 1)
             unary2_torch = unary1_torch[indices]
         else:
             t_block_num = block_num
@@ -274,7 +275,7 @@ def mixup_graph(input1, grad1, indices, block_num=2, alpha=0.5, beta=0., gamma=0
 
     # final mask and mixed ratio
     mask = F.interpolate(mask, size=width)
-    ratio = torch.tensor(ratio/block_num**2, dtype=torch.float32, device=device)
+    ratio = mask.reshape(batch_size, -1).mean(-1)
          
     return mask * input1 + (1-mask) * input2, ratio
 
@@ -301,7 +302,7 @@ def mask_transport(mask, grad_pool, eps=0.01):
         plan_win = torch.zeros_like(cost).scatter_(-2, col_best.unsqueeze(-2), 1) * plan
         plan_lose = (1-plan_win) * plan
 
-    cost += plan_lose
+        cost += plan_lose
 
     return plan_win
     

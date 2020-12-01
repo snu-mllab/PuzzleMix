@@ -20,8 +20,8 @@ from validation import validate
 #import torchvision.models as models
 import models
 from models.imagenet_resnet import BasicBlock, Bottleneck
+from multiprocessing import Pool
 #from torchvision.models.resnet import BasicBlock, Bottleneck
-
 
 from apex import amp
 import copy
@@ -156,10 +156,15 @@ def main():
         return
     
     lr_schedule = lambda t: np.interp([t], configs.TRAIN.lr_epochs, configs.TRAIN.lr_values)[0]
-    
+
+    if configs.TRAIN.mp > 0:
+        mp = Pool(configs.TRAIN.mp)
+    else:
+        mp = None
+
     for epoch in range(configs.TRAIN.start_epoch, configs.TRAIN.epochs):
         # train for one epoch
-        train(train_loader, model, optimizer, epoch, lr_schedule, configs.TRAIN.clean_lam)
+        train(train_loader, model, optimizer, epoch, lr_schedule, configs.TRAIN.clean_lam, mp=mp)
 
         # evaluate on validation set
         prec1 = validate(val_loader, model, criterion, configs, logger)
@@ -177,7 +182,7 @@ def main():
         epoch + 1)
         
         
-def train(train_loader, model, optimizer, epoch, lr_schedule, clean_lam=0): 
+def train(train_loader, model, optimizer, epoch, lr_schedule, clean_lam=0, mp=None): 
     mean = torch.Tensor(np.array(configs.TRAIN.mean)[:, np.newaxis, np.newaxis])
     mean = mean.expand(3, configs.DATA.crop_size, configs.DATA.crop_size).cuda()
     std = torch.Tensor(np.array(configs.TRAIN.std)[:, np.newaxis, np.newaxis])
@@ -231,13 +236,13 @@ def train(train_loader, model, optimizer, epoch, lr_schedule, clean_lam=0):
         unary = torch.sqrt(torch.mean(input_var.grad**2, dim=1))
             
         block_num = 2**(np.random.randint(1, 5))
-        mask = get_mask(input, unary, block_num, permuted_idx, alpha=lam, beta=configs.TRAIN.beta, eta=configs.TRAIN.eta, mean=mean, std=std)
-            
+        mask, lam = get_mask(input, unary, block_num, permuted_idx, alpha=lam, beta=configs.TRAIN.beta, eta=configs.TRAIN.eta, mean=mean, std=std, mp=mp)
+
         if clean_lam == 0:
             model.train()
-        output, lam = model(input, graphcut=True, permuted_idx=permuted_idx1, block_num=block_num, mask=mask, unary=unary, t_eps=configs.TRAIN.eps)
+        output = model(input, graphcut=True, permuted_idx=permuted_idx1, block_num=block_num, mask=mask, unary=unary, t_eps=configs.TRAIN.eps)
 
-        loss = lam*criterion_batch(output, target) + (1-lam)*criterion_batch(output, target[permuted_idx])
+        loss = lam * criterion_batch(output, target) + (1-lam) * criterion_batch(output, target[permuted_idx])
         loss = torch.mean(loss)
 
         # compute gradient and do SGD step

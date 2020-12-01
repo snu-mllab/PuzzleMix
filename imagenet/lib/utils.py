@@ -48,11 +48,11 @@ def accuracy(output, target, topk=(1,)):
 
         _, pred = output.topk(maxk, 1, True, True)
         pred = pred.t()
-        correct = pred.eq(target.view(1, -1).expand_as(pred))
+        correct = pred.eq(target.reshape(1, -1).expand_as(pred))
 
         res = []
         for k in topk:
-            correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
+            correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
 
@@ -99,6 +99,7 @@ def save_checkpoint(state, is_best, filepath, epoch):
     if is_best:
         shutil.copyfile(filename, os.path.join(filepath, 'model_best.pth.tar'))
 
+
 def cost_matrix(width):
     C = np.zeros([width**2, width**2], dtype=np.float32)
     for m_i in range(width**2):
@@ -111,12 +112,7 @@ def cost_matrix(width):
     C = C/(width-1)**2
     return C
 
-
 cost_matrix_dict = {'2':np.expand_dims(cost_matrix(2), 0), '4':np.expand_dims(cost_matrix(4), 0), '8':np.expand_dims(cost_matrix(8), 0), '16':np.expand_dims(cost_matrix(16), 0)}
-
-'''code for graphmix'''
-_int_types = [np.int, np.intc, np.int32, np.int64, np.longlong]
-_float_types = [np.float, np.float32, np.float64, np.float128]
 
 
 def graphcut_multi(unary1, unary2, pw_x, pw_y, alpha, beta, eta, n_labels=2, label_cost='l2'):
@@ -201,24 +197,19 @@ def neigh_penalty(input1, input2, k):
 
     return pw_x, pw_y
 
-from scipy.ndimage.filters import gaussian_filter
-random_state = np.random.RandomState(None)
 
-def get_mask(input1, grad1, block_num, indices, alpha=0.5, beta=1.2, gamma=0.5, eta=0.2, neigh_size=2, n_labels=3, sigma=1.0, mean=None, std=None):
+def get_mask(input1, grad1, block_num, indices, alpha=0.5, beta=1.2, gamma=0.5, eta=0.2, neigh_size=2, n_labels=3, mean=None, std=None, mp=None):
     input2 = input1[indices]
     batch_size, _, _, width = input1.shape
     block_size = width // block_num
     neigh_size = min(neigh_size, block_size)
 
-    alpha = np.ones([batch_size]) * alpha
     beta = beta/block_num/16
     
     grad1_pool = F.avg_pool2d(grad1, block_size)
         
     #mask = np.zeros([batch_size, 1, width, width])
-    unary1_torch = grad1_pool / grad1_pool.view(batch_size, -1).sum(1).view(batch_size, 1, 1)
-
-    mask=[]
+    unary1_torch = grad1_pool / grad1_pool.reshape(batch_size, -1).sum(1).reshape(batch_size, 1, 1)
     unary2_torch = unary1_torch[indices]
         
     input1_pool = F.avg_pool2d(input1 * std + mean, neigh_size)
@@ -258,44 +249,54 @@ def get_mask(input1, grad1, block_num, indices, alpha=0.5, beta=1.2, gamma=0.5, 
     pw_x = pw_x.detach().cpu().numpy()
     pw_y = pw_y.detach().cpu().numpy()
 
-    for i in range(batch_size):
-        mask.append(graphcut_multi(unary2[i], unary1[i], pw_x[i], pw_y[i], alpha[i], beta, eta, n_labels))
-
+    if mp is None:
+        mask = []
+        for i in range(batch_size):
+            mask.append(graphcut_multi(unary2[i], unary1[i], pw_x[i], pw_y[i], alpha, beta, eta, n_labels))
+    else:
+        input_mp = []
+        for i in range(batch_size):
+            input_mp.append((unary2[i], unary1[i], pw_x[i], pw_y[i], alpha, beta, eta, n_labels))
+        mask = mp.starmap(graphcut_multi, input_mp)
+   
     mask = torch.tensor(mask, dtype=torch.float32, device='cuda')
     mask = mask.unsqueeze(1)
+    ratio = mask.reshape(batch_size, -1).mean(-1)   
+    return mask, ratio
 
-    return mask
 
-def transport(input1, grad1, indices, block_num, mask, eps=0.8, t_type='full'):
+def transport(input1, grad1, indices, block_num, mask, eps=0.8):
+    t_batch_size = 32
     batch_size, _, _, width = input1.shape
     block_size = width // block_num
-    
+    input2 = input1[indices].clone()
+   
     grad1_pool = F.avg_pool2d(grad1, block_size)
-    unary1_torch = grad1_pool / grad1_pool.view(batch_size, -1).sum(1).view(batch_size, 1, 1)
+    unary1_torch = grad1_pool / grad1_pool.reshape(batch_size, -1).sum(1).reshape(batch_size, 1, 1)
         
-    plan = mask_transport(mask, unary1_torch, eps=eps, t_type=t_type)
-    input1 = transport_image_loop(input1, plan, batch_size, block_num, block_size)
-    plan = mask_transport(1-mask, unary1_torch[indices], eps=eps, t_type=t_type)
-    input2 = transport_image_loop(input1[indices], plan, batch_size, block_num, block_size)
-    
-    mask = F.interpolate(mask, size=width)
-    ratio = torch.mean(mask, dim=(1, 2, 3))
-    
-    return mask*input1 + (1-mask)*input2, ratio
+    plan1 = mask_transport(mask, unary1_torch, eps=eps)
+    plan2 = mask_transport(1-mask, unary1_torch[indices], eps=eps)
+    for i in range((batch_size-1)//t_batch_size + 1):
+        idx_from = i * t_batch_size
+        idx_to = min((i+1) * t_batch_size , batch_size)
+        input1[idx_from: idx_to] = transport_image(input1[idx_from: idx_to], plan1[idx_from: idx_to], block_num, block_size)
+        input2[idx_from: idx_to] = transport_image(input2[idx_from: idx_to], plan2[idx_from: idx_to], block_num, block_size)
 
-def mask_transport(mask, grad_pool, eps=0.01, t_type='full'):
+    mask = F.interpolate(mask, size=width)
+    return mask*input1 + (1-mask)*input2
+
+
+def mask_transport(mask, grad_pool, eps=0.01):
+    '''optimal transport plan'''
     batch_size = mask.shape[0]
     block_num = mask.shape[-1]
+
+    n_iter = int(block_num)
     C = torch.tensor(cost_matrix_dict[str(block_num)], device='cuda')
-    
-    if t_type=='full':
-        z = (mask>0).float()
-    else:
-        z = mask
-    
+
+    z = (mask>0).float()
     cost = eps * C - grad_pool.reshape(-1, block_num**2, 1) * z.reshape(-1, 1, block_num**2)
-    n_iter = int(np.sqrt(block_num))    
-    
+
     # row and col
     for _ in range(n_iter):
         row_best = cost.min(-1)[1]
@@ -308,40 +309,22 @@ def mask_transport(mask, grad_pool, eps=0.01, t_type='full'):
         plan_lose = (1-plan_win) * plan
 
         cost += plan_lose
-    
-    #return plan_win
-    plan_move = (plan_win - torch.eye(block_num**2, device='cuda'))>0
-    return plan_move
 
-def transport_image_loop(img, plan, batch_size, block_num, block_size):
-    plan_move = plan.max(-2)[1] * plan.sum(-2)
-    plan_move_idx = torch.nonzero(plan_move)
-    input_transport = img.clone()
-    for idx in plan_move_idx:
-        ex_idx = idx[0]
-        target_idx = idx[1]
-        source_idx = plan_move[ex_idx, target_idx]
-        target_idx = [target_idx//block_num, target_idx%block_num]
-        source_idx = [source_idx//block_num, source_idx%block_num]
-        input_transport[ex_idx,:, target_idx[0]*block_size: (target_idx[0]+1)*block_size, target_idx[1]*block_size: (target_idx[1]+1)*block_size] =\
-        img[ex_idx,:, source_idx[0]*block_size: (source_idx[0]+1)*block_size, source_idx[1]*block_size: (source_idx[1]+1)*block_size]
-    return input_transport
+    return plan_win
 
 
-def transport_image(img, plan, batch_size, block_num, block_size):
-    batch_size, _, w, h = img.shape
-    input_patch = img.reshape([batch_size, 3, block_num, block_size, w]).transpose(-2,-1)
+def transport_image(img, plan, block_num, block_size):
+    '''apply transport plan to images'''
+    batch_size = img.shape[0]
+    input_patch = img.reshape([batch_size, 3, block_num, block_size, block_num * block_size]).transpose(-2,-1)
     input_patch = input_patch.reshape([batch_size, 3, block_num, block_num, block_size, block_size]).transpose(-2,-1)
     input_patch = input_patch.reshape([batch_size, 3, block_num**2, block_size, block_size]).permute(0,1,3,4,2).unsqueeze(-1)
-   
-    print(plan.transpose(-2, -1).unsqueeze(1).unsqueeze(1).unsqueeze(1).shape)
-    print(input_patch.shape)
+
     input_transport = plan.transpose(-2,-1).unsqueeze(1).unsqueeze(1).unsqueeze(1).matmul(input_patch).squeeze(-1).permute(0,1,4,2,3)
-    print(input_transport.shape)
     input_transport = input_transport.reshape([batch_size, 3, block_num, block_num, block_size, block_size])
     input_transport = input_transport.transpose(-2,-1).reshape([batch_size, 3, block_num, block_num * block_size, block_size])
     input_transport = input_transport.transpose(-2,-1).reshape([batch_size, 3, block_num * block_size, block_num * block_size])
-    
+
     return input_transport
 
   
