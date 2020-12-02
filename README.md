@@ -14,6 +14,10 @@ This is the code for the paper "Puzzle Mix: Exploiting Saliency and Local Statis
 }
 ```
 
+## Updates 
+(20.12.01/torch 1.7) We built a **multi-processing** code for graph-cut, which runs on CPUs. As a result, the Puzzle Mix implementation (50s/epoch) is only slower about 1.5 times than Vanilla training (34s/epoch) on CIFAR-100, PreActResNet-18. 
+To use the multi-processing, just simply add `--mp [n_procs]` in the command. 
+
 ## Requirements
 This code has been tested with  
 python 3.6.8  
@@ -38,7 +42,6 @@ python test_robust.py --ckpt preactresnet18 --datapath [data_path]
 ```
 
 Also, we provide a jupyter notebook, **Visualization.ipynb**, by which users can visualize Puzzle Mix results with image samples.   
-
 
 ## Reproducing the results
 Detailed descriptions of arguments are provided in ```main.py```. Below are some of the examples for reproducing the experimental results. 
