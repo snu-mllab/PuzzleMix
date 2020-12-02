@@ -199,6 +199,7 @@ def neigh_penalty(input1, input2, k):
 
 
 def get_mask(input1, grad1, block_num, indices, alpha=0.5, beta=1.2, gamma=0.5, eta=0.2, neigh_size=2, n_labels=3, mean=None, std=None, mp=None):
+    '''obtain optimal mask'''
     input2 = input1[indices]
     batch_size, _, _, width = input1.shape
     block_size = width // block_num
@@ -266,7 +267,8 @@ def get_mask(input1, grad1, block_num, indices, alpha=0.5, beta=1.2, gamma=0.5, 
 
 
 def transport(input1, grad1, indices, block_num, mask, eps=0.8):
-    t_batch_size = 32
+    '''transport images'''
+    t_batch_size=32
     batch_size, _, _, width = input1.shape
     block_size = width // block_num
     input2 = input1[indices].clone()
@@ -276,11 +278,14 @@ def transport(input1, grad1, indices, block_num, mask, eps=0.8):
         
     plan1 = mask_transport(mask, unary1_torch, eps=eps)
     plan2 = mask_transport(1-mask, unary1_torch[indices], eps=eps)
-    for i in range((batch_size-1)//t_batch_size + 1):
-        idx_from = i * t_batch_size
-        idx_to = min((i+1) * t_batch_size , batch_size)
-        input1[idx_from: idx_to] = transport_image(input1[idx_from: idx_to], plan1[idx_from: idx_to], block_num, block_size)
-        input2[idx_from: idx_to] = transport_image(input2[idx_from: idx_to], plan2[idx_from: idx_to], block_num, block_size)
+    try:
+        for i in range((batch_size-1)//t_batch_size + 1):
+            idx_from = i * t_batch_size
+            idx_to = min((i+1) * t_batch_size , batch_size)
+            input1[idx_from: idx_to] = transport_image(input1[idx_from: idx_to], plan1[idx_from: idx_to], block_num, block_size)
+            input2[idx_from: idx_to] = transport_image(input2[idx_from: idx_to], plan2[idx_from: idx_to], block_num, block_size)
+    except:
+        raise AssertionError("** GPU memory is lacking while transporting. Reduce the t_batch_size value in this function (lib/utils.transprort) **")
 
     mask = F.interpolate(mask, size=width)
     return mask*input1 + (1-mask)*input2
