@@ -3,7 +3,6 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import gco
-from lapjv import lapjv
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
