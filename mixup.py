@@ -176,7 +176,7 @@ def mixup_graph(input1, grad1, indices, block_num=2, alpha=0.5, beta=0., gamma=0
     neigh_size = min(neigh_size, block_size)
     t_size = min(t_size, block_size)
 
-    # prior parameter
+    # normalize
     beta = beta/block_num/16
     
     # unary term
