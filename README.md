@@ -66,7 +66,7 @@ python main.py --dataset cifar100 --data_dir [data_path] --root_dir [save_path] 
 ```
 
 ---------------------
-Belows are commands to reproduce baselines.
+Below are commands to reproduce baselines.
 
 To reproduce **Vanilla with PreActResNet18 for 1200 epochs**, run:
 ```
@@ -129,7 +129,7 @@ python main.py --dataset tiny-imagenet-200 --data_dir [data_path] --root_dir [sa
 
 
 ---------------------
-Belows are commands to reproduce baselines.
+Below are commands to reproduce baselines.
 
 To reproduce **Vanilla with PreActResNet18 for 1200 epochs**, run:
 ```
