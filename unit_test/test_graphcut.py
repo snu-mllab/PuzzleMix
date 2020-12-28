@@ -10,7 +10,7 @@ def test_graph(unary1, unary2, pw_x, pw_y, beta, n_labels=2, verbose=False):
     input1 = np.copy(unary1)
     input2 = np.copy(unary2)
     
-    # Find Optimal labeling by greedy search
+    # Find Optimal labeling by exhaustive search
     mask_true = np.zeros_like(unary1)
     loss_min = 10000
     
