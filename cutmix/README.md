@@ -1,7 +1,7 @@
 ## ImageNet for 300 epochs
 
 In this repository, we test Puzzle Mix on the experimental setting of [CutMix](https://github.com/clovaai/CutMix-PyTorch). 
-Specifically, we train ResNet-50 for 300 epochs with Puzzle Mix and the result is as follows.
+Specifically, we train ResNet-50 for 300 epochs with Puzzle Mix and the result is as follows. The code is tested on PyTorch 1.7.
 
  Method | Top-1 Error | Model file
  -- | -- | --
