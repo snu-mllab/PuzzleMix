@@ -13,3 +13,5 @@ saliency.py
 .DS_Store
 !figures/*
 figures/.DS_Store
+!cutmix/*
+cutmix/checkpoint/*
