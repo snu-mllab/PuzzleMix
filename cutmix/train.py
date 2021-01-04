@@ -85,7 +85,7 @@ parser.add_argument('--neigh_size', type=int, default=4, help='neighbor size for
 parser.add_argument('--p_beta', type=float, default=1.2, help='label smoothness')
 parser.add_argument('--p_gamma', type=float, default=0.5, help='data local smoothness')
 parser.add_argument('--p_eta', type=float, default=0.2, help='prior term')
-parser.add_argument('--transport', type=str2bool, default=False, help='whether to use transport')
+parser.add_argument('--transport', type=str2bool, default=True, help='whether to use transport')
 parser.add_argument('--t_eps', type=float, default=0.8, help='transport cost coefficient')
 
 parser.add_argument('--clean_lam', type=float, default=0.0, help='clean regularization')
