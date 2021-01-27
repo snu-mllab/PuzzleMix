@@ -50,7 +50,6 @@ Detailed descriptions of arguments are provided in ```main.py```. Below are some
 ### CIFAR-100
 Dataset will be downloaded at ```[data_path]``` and the results will be saved at ```[save_path]```. If you want to run codes without saving results, please set ```--log_off True```.
 
----------------------
 To reproduce **Puzzle Mix with PreActResNet18 for 1200 epochs**, run:
 ```
 python main.py --dataset cifar100 --data_dir [data_path] --root_dir [save_path] --labels_per_class 500 --arch preactresnet18  --learning_rate 0.1 --momentum 0.9 --decay 0.0001 --epochs 1200 --schedule 400 800 --gammas 0.1 0.1 --train mixup --mixup_alpha 1.0 --graph True --n_labels 3 --eta 0.2 --beta 1.2 --gamma 0.5 --neigh_size 4 --transport True --t_size 4 --t_eps 0.8
@@ -89,11 +88,9 @@ To reproduce **CutMix with PreActResNet18 for 1200 epochs**, run:
 python main.py --dataset cifar100 --data_dir [data_path] --root_dir [save_path] --labels_per_class 500 --arch preactresnet18  --learning_rate 0.1 --momentum 0.9 --decay 0.0001 --epochs 1200 --schedule 400 800 --gammas 0.1 0.1 --train mixup --mixup_alpha 1.0 --box True
 ```
 
----------------------
 For **WRN28_10 with 400 epoch**, we need to change ```--arch wrn28_10```, ```--epochs 400```, and ```--schedule 200 300```. For **WRN28_10 with 200 epoch**, we set ```--epochs 200```, ```--schedule 120 170```, and ```--learning_rate 0.2```.
 
 
----------------------
 ### Tiny-Imagenet-200
 
 #### Download dataset
