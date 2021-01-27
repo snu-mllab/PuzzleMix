@@ -88,6 +88,7 @@ To reproduce **CutMix with PreActResNet18 for 1200 epochs**, run:
 python main.py --dataset cifar100 --data_dir [data_path] --root_dir [save_path] --labels_per_class 500 --arch preactresnet18  --learning_rate 0.1 --momentum 0.9 --decay 0.0001 --epochs 1200 --schedule 400 800 --gammas 0.1 0.1 --train mixup --mixup_alpha 1.0 --box True
 ```
 
+
 For **WRN28_10 with 400 epoch**, we need to change ```--arch wrn28_10```, ```--epochs 400```, and ```--schedule 200 300```. For **WRN28_10 with 200 epoch**, we set ```--epochs 200```, ```--schedule 120 170```, and ```--learning_rate 0.2```.
 
 
