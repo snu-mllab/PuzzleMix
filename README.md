@@ -15,7 +15,7 @@ This is the code for the paper "Puzzle Mix: Exploiting Saliency and Local Statis
 ```
 
 ## Updates 
-(21.01.04) We test Puzzle Mix with ImageNet on the **experimental setting of CutMix**. Results are in the 'cutmix' folder.  
+(21.01.04) We tested Puzzle Mix with ImageNet on the **experimental setting of CutMix**. Results are in the 'cutmix' folder.  
 (20.12.01/ torch 1.7) We built a **multi-processing** code for graph-cut, which runs on CPUs. As a result, the Puzzle Mix implementation (50s/epoch) is only slower about 1.5 times than Vanilla training (34s/epoch) on CIFAR-100, PreActResNet-18. 
 To use the multi-processing, just simply add `--mp [n_procs]` in the command. 
 
@@ -104,7 +104,6 @@ The following process is forked from [(link)](https://github.com/vikasverma1077/
 python load_data.py
 ```
 
----------------------
 To reproduce **Puzzle Mix with PreActResNet18 for 1200 epochs**, run:
 ```
 python main.py --dataset tiny-imagenet-200 --data_dir [data_path] --root_dir [save_path] --labels_per_class 500 --arch preactresnet18  --learning_rate 0.2 --momentum 0.9 --decay 0.0001 --epochs 1200 --schedule 600 900 --gammas 0.1 0.1 --train mixup --mixup_alpha 1.0 --graph True --n_labels 3 --eta 0.2 --beta 1.2 --gamma 0.5 --neigh_size 4 --transport True --t_eps 0.8 --clean_lam 1
