@@ -92,6 +92,10 @@ python main.py --dataset cifar100 --data_dir [data_path] --root_dir [save_path] 
 For **WRN28_10 with 400 epoch**, we need to change ```--arch wrn28_10```, ```--epochs 400```, and ```--schedule 200 300```. For **WRN28_10 with 200 epoch**, we set ```--epochs 200```, ```--schedule 120 170```, and ```--learning_rate 0.2```.
 
 
+### ImageNet
+To test with ImageNet, please refer to ./imagenet (for 100 epochs training with apex) or ./cutmix (for 300 epochs training).
+
+
 ### Tiny-Imagenet-200
 
 #### Download dataset
@@ -148,9 +152,6 @@ To reproduce **CutMix with PreActResNet18 for 1200 epochs**, run:
 ```
 python main.py --dataset tiny-imagenet-200 --data_dir [data_path] --root_dir [save_path] --labels_per_class 500 --arch preactresnet18  --learning_rate 0.2 --momentum 0.9 --decay 0.0001 --epochs 1200 --schedule 600 900 --gammas 0.1 0.1 --train mixup --mixup_alpha 0.2 --box True
 ```
-
-### ImageNet
-To test with ImageNet, please refer to ./imagenet (for 100 epochs training with apex) or ./cutmix (for 300 epochs training).
 
 
 ## License
