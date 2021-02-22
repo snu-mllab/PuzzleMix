@@ -1,5 +1,5 @@
 # Puzzle Mix: Exploiting Saliency and Local Statistics for Optimal Mixup (ImageNet)
-This is the code for the paper "Puzzle Mix: Exploiting Saliency and Local Statistics for Optimal Mixup" submitted to ICML'20. Some parts of the codes are borrowed from Fast is better than free: revisiting adversarial training [(link)](https://github.com/anonymous-sushi-armadillo/fast_is_better_than_free_imagenet).
+This is the code for the paper "Puzzle Mix: Exploiting Saliency and Local Statistics for Optimal Mixup" submitted to ICML'20. The training and data preprocessing codes are borrowed from Fast is better than free: revisiting adversarial training [(link)](https://github.com/anonymous-sushi-armadillo/fast_is_better_than_free_imagenet).
 
 ## Requirements
 1. Install the required python packages. All packages can be installed by running the following command:
@@ -15,4 +15,9 @@ provided by the PyTorch repository, to move the validation subset to the labeled
 2. Prepare resized versions of the ImageNet dataset, you can use `resize.py` provided in this repository. 
 
 ## Reproducing the results
-To reproduce the results from the paper, modify ```DATA160``` and ```DATA352``` (in run_fast.sh) to your own ```[data_path]``` made with `resize.py`, and run `run_fast.sh`. This script runs the main code `main_fast.py` using the configurations provided in the `configs/` folder. All parameters can be modified by adjusting the configuration files in the `configs/` folder. To evaluate the trained model, run `run_test.sh`.
+To reproduce the results from the paper, modify ```DATA160``` and ```DATA352``` (in run_fast.sh) with your own ```data path``` from `resize.py`.
+Then run 
+```
+run_fast.sh
+``` 
+This script runs the main code `main_fast.py` using the configurations provided in the `configs/` folder. All parameters can be modified by adjusting the configuration files in the `configs/` folder. To evaluate the trained model, run `run_test.sh`.
