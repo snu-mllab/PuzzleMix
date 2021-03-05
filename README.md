@@ -15,7 +15,7 @@ This is the code for the paper "Puzzle Mix: Exploiting Saliency and Local Statis
 ```
 
 ## Updates 
-(21.01.04) We tested Puzzle Mix with ImageNet on the **experimental setting of CutMix**. Results are in the 'cutmix' folder.  
+(21.01.04) ImageNet training for 300 epochs are conducted! (**experimental setting of CutMix**, at ```./cutmix```).   
 (20.12.01/ torch 1.7) We built a **multi-processing** code for graph-cut, which runs on CPUs. As a result, the Puzzle Mix implementation (50s/epoch) is only slower about 1.5 times than Vanilla training (34s/epoch) on CIFAR-100, PreActResNet-18. 
 To use the multi-processing, just simply add `--mp [n_procs]` in the command. 
 
@@ -46,6 +46,10 @@ Also, we provide a jupyter notebook, **Visualization.ipynb**, by which users can
 
 ## Reproducing the results
 Detailed descriptions of arguments are provided in ```main.py```. Below are some of the examples for reproducing the experimental results. 
+
+
+### ImageNet
+To test with ImageNet, please refer to ```./imagenet``` (for 100 epochs training with apex) or ```./cutmix``` (for 300 epochs training).   
 
 ### CIFAR-100
 Dataset will be downloaded at ```[data_path]``` and the results will be saved at ```[save_path]```. If you want to run codes without saving results, please set ```--log_off True```.
@@ -90,10 +94,6 @@ python main.py --dataset cifar100 --data_dir [data_path] --root_dir [save_path] 
 
 
 For **WRN28_10 with 400 epoch**, we need to change ```--arch wrn28_10```, ```--epochs 400```, and ```--schedule 200 300```. For **WRN28_10 with 200 epoch**, we set ```--epochs 200```, ```--schedule 120 170```, and ```--learning_rate 0.2```.
-
-
-### ImageNet
-To test with ImageNet, please refer to ./imagenet (for 100 epochs training with apex) or ./cutmix (for 300 epochs training).
 
 
 ### Tiny-Imagenet-200
