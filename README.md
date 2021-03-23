@@ -49,7 +49,7 @@ Detailed descriptions of arguments are provided in ```main.py```. Below are some
 
 
 ### ImageNet
-To test with ImageNet, please refer to ```./imagenet``` (for 100 epochs training with apex) or ```./cutmix``` (for 300 epochs training).   
+To test with ImageNet, please refer to ```./imagenet``` (for 100 epochs training with apex) or ```./cutmix``` (for 300 epochs training). ```./cutmix``` contains the most concise version of Puzzle Mix training code.
 
 ### CIFAR-100
 Dataset will be downloaded at ```[data_path]``` and the results will be saved at ```[save_path]```. If you want to run codes without saving results, please set ```--log_off True```.
