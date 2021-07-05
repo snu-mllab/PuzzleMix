@@ -1,5 +1,5 @@
 # Puzzle Mix: Exploiting Saliency and Local Statistics for Optimal Mixup (ImageNet)
-This is the code for the paper "Puzzle Mix: Exploiting Saliency and Local Statistics for Optimal Mixup" submitted to ICML'20. The training and data preprocessing codes are borrowed from Fast is better than free: revisiting adversarial training [(link)](https://github.com/anonymous-sushi-armadillo/fast_is_better_than_free_imagenet).
+This is the code for fast ImageNet training based on Apex. The training and data preprocessing codes are borrowed from Fast is better than free: revisiting adversarial training [(link)](https://github.com/anonymous-sushi-armadillo/fast_is_better_than_free_imagenet). For 300 epochs training, please refer to ```./cutmix```
 
 ## Requirements
 1. Install the required python packages. All packages can be installed by running the following command:
