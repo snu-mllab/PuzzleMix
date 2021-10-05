@@ -9,9 +9,10 @@ models/*.pyc
 !unit_test/*
 !checkpoint/*
 saliency.py
-!imagenet/*
+!imagenet_fast/*
 .DS_Store
 !figures/*
 figures/.DS_Store
-!cutmix/*
-cutmix/checkpoint/*
+!imagenet/*
+imagenet/checkpoint/*
+

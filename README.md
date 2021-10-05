@@ -15,7 +15,7 @@ This is the code for the paper "Puzzle Mix: Exploiting Saliency and Local Statis
 ```
 
 ## Updates 
-- (21.01.04) ImageNet training for 300 epochs are conducted! (Top-1 accuracy: **78.76%**, details are at [```./cutmix```](https://github.com/snu-mllab/PuzzleMix/tree/master/cutmix)).   
+- (21.01.04) ImageNet traininge for 300 epochs are conducted! (Top-1 accuracy: **78.76%**, details are at [```./imagenet```](https://github.com/snu-mllab/PuzzleMix/tree/master/imagenet)).   
 - (20.12.01/ torch 1.7) We built a **multi-processing** code for graph-cut, which runs on CPUs. As a result, the Puzzle Mix implementation (50s/epoch) is only slower about 1.5 times than Vanilla training (34s/epoch) on CIFAR-100, PreActResNet-18. 
 To use the multi-processing, just simply add `--mp [n_procs]` in the command. 
 
@@ -49,7 +49,7 @@ Detailed descriptions of arguments are provided in ```main.py```. Below are some
 
 
 ### ImageNet
-To test with ImageNet, please refer to ```./imagenet``` (for 100 epochs training with apex) or ```./cutmix``` (for 300 epochs training). ```./cutmix``` contains the most concise version of Puzzle Mix training code.
+To test with ImageNet, please refer to [```./imagenet_fast```](https://github.com/snu-mllab/PuzzleMix/tree/master/imagenet_fast) or [```./imagenet```](https://github.com/snu-mllab/PuzzleMix/tree/master/imagenet) (for 300 epochs training). ```./imagenet``` contains the most concise version of Puzzle Mix training code.
 
 ### CIFAR-100
 Dataset will be downloaded at ```[data_path]``` and the results will be saved at ```[save_path]```. If you want to run codes without saving results, please set ```--log_off True```.
