@@ -34,7 +34,7 @@ six 1.12.0
 ## Download Checkpoints and Test
 We provide a checkpoint of adversarial Puzzle Mix with PreActResNet18 trained on CIFAR-100. The model has 80.34% clean test accuracy and 42.89% accuracy against FGSM with 8/255 l-infinity epsilon-ball.
 
-CIFAR-100 dataset will be downloaded at ```[data_path]```, if the dataset is not exist. To test corruption robusetness, please refer to https://github.com/hendrycks/robustness to download dataset. Note that the corruption dataset should be downloaded at ```[data_path]``` with the folder name of Cifar100-C (for CIFAR100) and tiny-imagenet-200-C (for Tiny-ImageNet)
+CIFAR-100 dataset will be downloaded at ```[data_path]```, if the dataset is not exist. To test corruption robusetness, please refer to https://github.com/hendrycks/robustness and download the dataset. Note that the corruption dataset should be downloaded at ```[data_path]``` with the folder name of Cifar100-C (for CIFAR100) and tiny-imagenet-200-C (for Tiny-ImageNet)
 
 To test the model, run:
 ```
