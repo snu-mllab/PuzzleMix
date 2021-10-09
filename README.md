@@ -34,7 +34,7 @@ six 1.12.0
 ## Download Checkpoints and Test
 We provide a checkpoint of adversarial Puzzle Mix with PreActResNet18 trained on CIFAR-100. The model has 80.34% clean test accuracy and 42.89% accuracy against FGSM with 8/255 l-infinity epsilon-ball.
 
-CIFAR-100 dataset will be downloaded at ```[data_path]```, if the dataset is not exist. To test corruption robusetness, please refer to https://github.com/hendrycks/robustness and download the dataset. Note that the corruption dataset should be downloaded at ```[data_path]``` with the folder name of Cifar100-C (for CIFAR100) and tiny-imagenet-200-C (for Tiny-ImageNet)
+CIFAR-100 dataset will automatically be downloaded at ```[data_path]```. To test corruption robusetness, download the dataset at [here](https://github.com/hendrycks/robustness). Note that the corruption dataset should be downloaded at ```[data_path]``` with the folder name of Cifar100-C (for CIFAR100) and tiny-imagenet-200-C (for Tiny-ImageNet).
 
 To test the model, run:
 ```
@@ -92,13 +92,13 @@ python main.py --dataset cifar100 --data_dir [data_path] --root_dir [save_path] 
 ```
 
 
-For **WRN28_10 with 400 epoch**, we need to change ```--arch wrn28_10```, ```--epochs 400```, and ```--schedule 200 300```. For **WRN28_10 with 200 epoch**, we set ```--epochs 200```, ```--schedule 120 170```, and ```--learning_rate 0.2```.
+For **WRN28_10 with 400 epoch**, set ```--arch wrn28_10```, ```--epochs 400```, and ```--schedule 200 300```. For **WRN28_10 with 200 epoch**, set ```--epochs 200```, ```--schedule 120 170```, and ```--learning_rate 0.2```.
 
 
 ### Tiny-Imagenet-200
 
 #### Download dataset
-The following process is forked from [(link)](https://github.com/vikasverma1077/manifold_mixup/tree/master/supervised).
+The following process is forked from ([link](https://github.com/vikasverma1077/manifold_mixup/tree/master/supervised)).
 
 1. Download the zipped data from https://tiny-imagenet.herokuapp.com/  
 2. If not already exiting, create a subfolder "data" in root folder "PuzzleMix"  
