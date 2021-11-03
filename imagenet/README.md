@@ -44,7 +44,7 @@ python train.py \
 --no-verbose
 ```
 
-## PyramidNet
+## CIFAR-100 with PyramidNet
 We also test Puzzle Mix on PyramidNet-200 and the results (error rates) are as follows (averaged over 3 random seeds).
 
 Method | Converged |	Converged (top-5) |	Best |	Best (top-5)
