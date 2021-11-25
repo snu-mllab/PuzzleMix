@@ -2,21 +2,19 @@ from __future__ import division
 # Codes are borrowed from https://github.com/vikasverma1077/manifold_mixup/tree/master/supervised
 
 import os, sys, shutil, time, random
-from collections import OrderedDict, Counter
+from collections import OrderedDict
 
 sys.path.append('..')
 if sys.version_info[0] < 3:
     import cPickle as pickle
 else:
     import _pickle as pickle
-from glob import glob
 import argparse
 import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
 import torch.nn as nn
 from torch.autograd import Variable
-
 from load_data import load_data_subset
 from logger import plotting, copy_script_to_folder, AverageMeter, RecorderMeter, time_string, convert_secs2time
 import models

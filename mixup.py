@@ -1,4 +1,3 @@
-import os
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -130,25 +129,26 @@ def get_lambda(alpha=1.0, alpha2=None):
     return lam
 
 
-def graphcut_multi(unary1, unary2, pw_x, pw_y, alpha, beta, eta, n_labels=2):
+def graphcut_multi(unary1, unary2, pw_x, pw_y, alpha, beta, eta, n_labels=2, eps=1e-8):
     '''alpha-beta swap algorithm'''
     block_num = unary1.shape[0]
 
     large_val = 1000 * block_num**2
 
     if n_labels == 2:
-        prior = eta * np.array([-np.log(alpha + 1e-8), -np.log(1 - alpha + 1e-8)]) / block_num**2
+        prior = np.array([-np.log(alpha + eps), -np.log(1 - alpha + eps)])
     elif n_labels == 3:
-        prior = eta * np.array([
-            -np.log(alpha**2 + 1e-8), -np.log(2 * alpha *
-                                              (1 - alpha) + 1e-8), -np.log((1 - alpha)**2 + 1e-8)
-        ]) / block_num**2
+        prior = np.array([
+            -np.log(alpha**2 + eps), -np.log(2 * alpha * (1 - alpha) + eps),
+            -np.log((1 - alpha)**2 + eps)
+        ])
     elif n_labels == 4:
-        prior = eta * np.array([
-            -np.log(alpha**3 + 1e-8), -np.log(3 * alpha**2 * (1 - alpha) + 1e-8),
-            -np.log(3 * alpha * (1 - alpha)**2 + 1e-8), -np.log((1 - alpha)**3 + 1e-8)
-        ]) / block_num**2
+        prior = np.array([
+            -np.log(alpha**3 + eps), -np.log(3 * alpha**2 * (1 - alpha) + eps),
+            -np.log(3 * alpha * (1 - alpha)**2 + eps), -np.log((1 - alpha)**3 + eps)
+        ])
 
+    prior = eta * prior / block_num**2
     unary_cost = (large_val * np.stack([(1 - lam) * unary1 + lam * unary2 + prior[i]
                                         for i, lam in enumerate(np.linspace(0, 1, n_labels))],
                                        axis=-1)).astype(np.int32)
@@ -160,7 +160,6 @@ def graphcut_multi(unary1, unary2, pw_x, pw_y, alpha, beta, eta, n_labels=2):
 
     pw_x = (large_val * (pw_x + beta)).astype(np.int32)
     pw_y = (large_val * (pw_y + beta)).astype(np.int32)
-
     labels = 1.0 - gco.cut_grid_graph(unary_cost, pairwise_cost, pw_x, pw_y,
                                       algorithm='swap') / (n_labels - 1)
     mask = labels.reshape(block_num, block_num)
