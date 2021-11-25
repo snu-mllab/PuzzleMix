@@ -1,4 +1,3 @@
-import os
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -202,7 +201,6 @@ def mixup_graph(input1,
 
 def mask_transport(mask, grad_pool, eps=0.01):
     '''optimal transport plan'''
-    batch_size = mask.shape[0]
     block_num = mask.shape[-1]
 
     n_iter = int(block_num)
