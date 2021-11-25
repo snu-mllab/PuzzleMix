@@ -10,7 +10,7 @@ import numpy as np
 import random
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from mixup import to_one_hot, mixup_process, get_lambda
+from mixup import to_one_hot, mixup_process
 
 act = torch.nn.ReLU()
 
@@ -140,13 +140,11 @@ class Wide_ResNet(nn.Module):
 
 
 def wrn28_10(num_classes=10, dropout=False, stride=1):
-    #print ('this')
     model = Wide_ResNet(depth=28, widen_factor=10, num_classes=num_classes, stride=stride)
     return model
 
 
 def wrn28_2(num_classes=10, dropout=False, stride=1):
-    #print ('this')
     model = Wide_ResNet(depth=28, widen_factor=2, num_classes=num_classes, stride=stride)
     return model
 

@@ -79,7 +79,6 @@ class PreActResNet(nn.Module):
         super(PreActResNet, self).__init__()
         self.in_planes = initial_channels
         self.num_classes = num_classes
-        #import pdb; pdb.set_trace()
         self.conv1 = nn.Conv2d(3,
                                initial_channels,
                                kernel_size=3,
@@ -192,7 +191,7 @@ def preactresnet152(num_classes=10, dropout=False, stride=1):
 
 
 def test():
-    net = PreActResNet152(True, 10)
+    net = preactresnet34()
     y = net(Variable(torch.randn(1, 3, 32, 32)))
     print(y.size())
 
