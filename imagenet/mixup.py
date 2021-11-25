@@ -2,8 +2,6 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import gco
-import time
-from multiprocessing import Pool
 
 
 def cost_matrix(width):
