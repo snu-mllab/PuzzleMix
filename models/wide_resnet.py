@@ -10,7 +10,7 @@ import numpy as np
 import random
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from mixup import to_one_hot, mixup_process
+from mixup import to_one_hot, mixup_process, get_lambda
 
 act = torch.nn.ReLU()
 

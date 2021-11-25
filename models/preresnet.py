@@ -4,9 +4,10 @@ import torch.nn.functional as F
 
 from torch.autograd import Variable
 import sys, os
+import numpy as np
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from mixup import to_one_hot, mixup_process
+from mixup import to_one_hot, mixup_process, get_lambda
 import random
 
 
