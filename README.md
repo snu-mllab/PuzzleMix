@@ -42,6 +42,17 @@ cd checkpoint
 python test_robust.py --ckpt preactresnet18 --datapath [data_path]
 ```
 
+The other models trained with Puzzle Mix can be also downloaded:
+
+Dataset | Model  | Method | Description | Model file
+-- | -- | -- | --  | -- 
+CIFAR-100 | WRN-28-10 | Puzzle Mix \[Table 2\] | 84.0% (top-1) | [drive](https://drive.google.com/drive/folders/1_vOVNYcoXFNCpTzSjmP6iKwM4I8kebNM?usp=sharing)
+CIFAR-100 | WRN-28-10 | Puzzle Mix + Adv training [Table 2] | 84.0% (Top-1) / 52.8% (FGSM) | [drive](https://drive.google.com/drive/folders/1rk7pv4ov6zXjP83SmsdYFcm8J_FDJxI-?usp=sharing)
+CIFAR-100 | WRN-28-10 | Puzzle Mix + Augmentation [Table 7] | 83.7% (Top-1) / 71.1% (CIFAR100-C) | [drive](https://drive.google.com/drive/folders/1G0ACJzfRGLS7-1jTbflLuMCW7QGDYrxs?usp=sharing)
+CIFAR-100 | PreActResNet-18 | Puzzle Mix \[Table 3\] | 80.4% (Top-1)  | [drive](https://drive.google.com/drive/folders/1qBLhcUsicVFZi5sxEWTXI0O07QObG5dH?usp=sharing)
+CIFAR-100 | PreActResNet-18 | Puzzle Mix + Adv training [Table 3] | 80.2% (Top-1) / 42.9% (FGSM)  | [drive](https://drive.google.com/drive/folders/159nUxYN58OYXtRnQSynt8iEJ0BmlXaj9?usp=sharing)
+Tiny-ImageNet | PreActResNet-18 | Puzzle Mix [Table 4] | 63.9% (Top-1) | [drive](https://drive.google.com/drive/folders/1jxCib7eSoKBthNGyke7lQuVHgkl21mtZ?usp=sharing)
+
 Also, we provide a jupyter notebook, **Visualization.ipynb**, by which users can visualize Puzzle Mix results with image samples.   
 
 ## Reproducing the results
