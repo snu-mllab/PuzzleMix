@@ -18,7 +18,6 @@ class Compose(object):
         >>>     transforms.ToTensor(),
         >>> ])
     """
-
     def __init__(self, transforms):
         self.transforms = transforms
 
@@ -38,7 +37,6 @@ class Compose(object):
 
 class Lighting(object):
     """Lighting noise(AlexNet - style PCA - based noise)"""
-
     def __init__(self, alphastd, eigval, eigvec):
         self.alphastd = alphastd
         self.eigval = torch.Tensor(eigval)
@@ -58,7 +56,6 @@ class Lighting(object):
 
 
 class Grayscale(object):
-
     def __call__(self, img):
         gs = img.clone()
         gs[0].mul_(0.299).add_(0.587, gs[1]).add_(0.114, gs[2])
@@ -68,7 +65,6 @@ class Grayscale(object):
 
 
 class Saturation(object):
-
     def __init__(self, var):
         self.var = var
 
@@ -79,7 +75,6 @@ class Saturation(object):
 
 
 class Brightness(object):
-
     def __init__(self, var):
         self.var = var
 
@@ -90,7 +85,6 @@ class Brightness(object):
 
 
 class Contrast(object):
-
     def __init__(self, var):
         self.var = var
 
@@ -102,7 +96,6 @@ class Contrast(object):
 
 
 class ColorJitter(object):
-
     def __init__(self, brightness=0.4, contrast=0.4, saturation=0.4):
         self.brightness = brightness
         self.contrast = contrast
@@ -119,5 +112,4 @@ class ColorJitter(object):
 
         random.shuffle(self.transforms)
         transform = Compose(self.transforms)
-        # print(transform)
         return transform(img)
