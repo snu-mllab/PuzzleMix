@@ -22,28 +22,51 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-model_names = sorted(name for name in models.__dict__
-                     if name.islower() and not name.startswith("__")
-                     and callable(models.__dict__[name]))
+model_names = sorted(
+    name for name in models.__dict__
+    if name.islower() and not name.startswith("__") and callable(models.__dict__[name]))
 
-parser = argparse.ArgumentParser(description='Cutmix PyTorch CIFAR-10, CIFAR-100 and ImageNet-1k Test')
-parser.add_argument('--net_type', default='resnet', type=str,
+parser = argparse.ArgumentParser(
+    description='Cutmix PyTorch CIFAR-10, CIFAR-100 and ImageNet-1k Test')
+parser.add_argument('--net_type',
+                    default='resnet',
+                    type=str,
                     help='networktype: resnet, and pyamidnet')
-parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
+parser.add_argument('-j',
+                    '--workers',
+                    default=4,
+                    type=int,
+                    metavar='N',
                     help='number of data loading workers (default: 4)')
-parser.add_argument('-b', '--batch_size', default=64, type=int,
-                    metavar='N', help='mini-batch size (default: 256)')
-parser.add_argument('--print-freq', '-p', default=10, type=int,
-                    metavar='N', help='print frequency (default: 10)')
-parser.add_argument('--depth', default=50, type=int,
-                    help='depth of the network (default: 32)')
-parser.add_argument('--no-bottleneck', dest='bottleneck', action='store_false',
+parser.add_argument('-b',
+                    '--batch_size',
+                    default=64,
+                    type=int,
+                    metavar='N',
+                    help='mini-batch size (default: 256)')
+parser.add_argument('--print-freq',
+                    '-p',
+                    default=10,
+                    type=int,
+                    metavar='N',
+                    help='print frequency (default: 10)')
+parser.add_argument('--depth', default=50, type=int, help='depth of the network (default: 32)')
+parser.add_argument('--no-bottleneck',
+                    dest='bottleneck',
+                    action='store_false',
                     help='to use basicblock for CIFAR datasets (default: bottleneck)')
-parser.add_argument('--dataset', dest='dataset', default='imagenet', type=str,
+parser.add_argument('--dataset',
+                    dest='dataset',
+                    default='imagenet',
+                    type=str,
                     help='dataset (options: cifar10, cifar100, and imagenet)')
-parser.add_argument('--alpha', default=240, type=float,
+parser.add_argument('--alpha',
+                    default=240,
+                    type=float,
                     help='number of new channel increases per depth (default: 300)')
-parser.add_argument('--no-verbose', dest='verbose', action='store_false',
+parser.add_argument('--no-verbose',
+                    dest='verbose',
+                    action='store_false',
                     help='to print the status at every iteration')
 parser.add_argument('--pretrained', default='/set/your/model/path', type=str, metavar='PATH')
 
@@ -69,38 +92,44 @@ def main():
             normalize,
         ])
 
-        transform_test = transforms.Compose([
-            transforms.ToTensor(),
-            normalize
-        ])
+        transform_test = transforms.Compose([transforms.ToTensor(), normalize])
 
         if args.dataset == 'cifar100':
-            val_loader = torch.utils.data.DataLoader(
-                datasets.CIFAR100('../data', train=False, transform=transform_test),
-                batch_size=args.batch_size, shuffle=True, num_workers=args.workers, pin_memory=True)
+            val_loader = torch.utils.data.DataLoader(datasets.CIFAR100('../data',
+                                                                       train=False,
+                                                                       transform=transform_test),
+                                                     batch_size=args.batch_size,
+                                                     shuffle=True,
+                                                     num_workers=args.workers,
+                                                     pin_memory=True)
             numberofclass = 100
         elif args.dataset == 'cifar10':
-            val_loader = torch.utils.data.DataLoader(
-                datasets.CIFAR10('../data', train=False, transform=transform_test),
-                batch_size=args.batch_size, shuffle=True, num_workers=args.workers, pin_memory=True)
+            val_loader = torch.utils.data.DataLoader(datasets.CIFAR10('../data',
+                                                                      train=False,
+                                                                      transform=transform_test),
+                                                     batch_size=args.batch_size,
+                                                     shuffle=True,
+                                                     num_workers=args.workers,
+                                                     pin_memory=True)
             numberofclass = 10
         else:
             raise Exception('unknown dataset: {}'.format(args.dataset))
 
-    elif args.dataset == 'imagenet':    
+    elif args.dataset == 'imagenet':
         valdir = os.path.join('/data_large/readonly/ImageNet-Fast/imagenet/val')
-        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                         std=[0.229, 0.224, 0.225])
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 
-        val_loader = torch.utils.data.DataLoader(
-            datasets.ImageFolder(valdir, transforms.Compose([
+        val_loader = torch.utils.data.DataLoader(datasets.ImageFolder(
+            valdir,
+            transforms.Compose([
                 transforms.Resize(256),
                 transforms.CenterCrop(224),
-                transforms.ToTensor(),
-                normalize,
+                transforms.ToTensor(), normalize
             ])),
-            batch_size=args.batch_size, shuffle=False,
-            num_workers=args.workers, pin_memory=True)
+                                                 batch_size=args.batch_size,
+                                                 shuffle=False,
+                                                 num_workers=args.workers,
+                                                 pin_memory=True)
         numberofclass = 1000
 
     else:
@@ -121,11 +150,13 @@ def main():
         print("=> loading checkpoint '{}'".format(args.pretrained))
         checkpoint = torch.load(args.pretrained)
         model.load_state_dict(checkpoint['state_dict'])
-        print("=> loaded checkpoint '{}'(best err1: {}%)".format(args.pretrained, checkpoint['best_err1']))
+        print("=> loaded checkpoint '{}'(best err1: {}%)".format(args.pretrained,
+                                                                 checkpoint['best_err1']))
     else:
         raise Exception("=> no checkpoint found at '{}'".format(args.pretrained))
 
-    print('the number of model parameters: {}'.format(sum([p.data.nelement() for p in model.parameters()])))
+    print('the number of model parameters: {}'.format(
+        sum([p.data.nelement() for p in model.parameters()])))
 
     # define loss function (criterion) and optimizer
     criterion = nn.CrossEntropyLoss().cuda()
@@ -170,16 +201,18 @@ def validate(val_loader, model, criterion):
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
                   'Top 1-err {top1.val:.4f} ({top1.avg:.4f})\t'
-                  'Top 5-err {top5.val:.4f} ({top5.avg:.4f})'.format(
-                i, len(val_loader), batch_time=batch_time, loss=losses,
-                top1=top1, top5=top5))
+                  'Top 5-err {top5.val:.4f} ({top5.avg:.4f})'.format(i,
+                                                                     len(val_loader),
+                                                                     batch_time=batch_time,
+                                                                     loss=losses,
+                                                                     top1=top1,
+                                                                     top5=top5))
 
     return top1.avg, top5.avg, losses.avg
 
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
-
     def __init__(self):
         self.reset()
 
@@ -196,7 +229,7 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
 
-def accuracy(output, target, topk=(1,)):
+def accuracy(output, target, topk=(1, )):
     """Computes the precision@k for the specified values of k"""
     maxk = max(topk)
     batch_size = target.size(0)
