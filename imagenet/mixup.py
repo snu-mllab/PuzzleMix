@@ -33,7 +33,6 @@ cost_matrix_dict = {
 def graphcut_multi(unary1, unary2, pw_x, pw_y, alpha, beta, eta, n_labels=2, eps=1e-8):
     '''alpha-beta swap algorithm'''
     block_num = unary1.shape[0]
-
     large_val = 1000 * block_num**2
 
     if n_labels == 2:
