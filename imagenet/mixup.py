@@ -49,7 +49,6 @@ def graphcut_multi(unary1, unary2, pw_x, pw_y, alpha, beta, eta, n_labels=2, eps
         ])
 
     prior = eta * prior / block_num**2
-
     unary_cost = (large_val * np.stack([(1 - lam) * unary1 + lam * unary2 + prior[i]
                                         for i, lam in enumerate(np.linspace(0, 1, n_labels))],
                                        axis=-1)).astype(np.int32)
