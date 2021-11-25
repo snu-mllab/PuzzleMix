@@ -238,15 +238,13 @@ def main():
                                                    num_workers=args.workers,
                                                    pin_memory=True,
                                                    sampler=train_sampler)
-
-        val_loader = torch.utils.data.DataLoader(datasets.ImageFolder(
-            valdir,
-            transforms.Compose([
-                transforms.Resize(256),
-                transforms.CenterCrop(224),
-                transforms.ToTensor(),
-                normalize,
-            ])),
+        val_transform = transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            normalize,
+        ])
+        val_loader = torch.utils.data.DataLoader(datasets.ImageFolder(valdir, val_transform),
                                                  batch_size=args.batch_size // 4,
                                                  shuffle=False,
                                                  num_workers=args.workers,
